@@ -56,24 +56,24 @@ when there are no entries."
                " ")))))
 
 (defun chaplet-bar--install ()
-  "Insert the keybinding bar into the buffer-local `mode-line-format'.
+  "Prepend the keybinding bar to the buffer-local `mode-line-format'.
 
-The `(:eval (chaplet-bar--render))' element is placed *before* the
-trailing space-filler (`mode-line-end-spaces', whose `%-' directive
-expands to fill the remaining line width).  Appending after it pushes
-the bar past the right edge where it is clipped and never displayed.
+The `(:eval (chaplet-bar--render))' element is inserted at the front
+of the mode line (after the leading \"%e\" error-message slot when
+present).  Appending at the end is not portable: vanilla Emacs ends
+the mode line with the `%-' space-filler in `mode-line-end-spaces',
+and Doom's doom-modeline right-aligns its tail with `:align-to' —
+both clip anything placed after them, hiding the bar.  A leading
+position is always visible regardless of the mode-line package.
 Idempotent: at most one bar element per buffer."
   (unless chaplet-bar--installed
     (setq-local chaplet-bar--installed t)
     (when (consp mode-line-format)
-      (let* ((bar '((:eval (chaplet-bar--render))))
-             (tail (memq 'mode-line-end-spaces mode-line-format)))
+      (let ((bar '((:eval (chaplet-bar--render)))))
         (setq-local mode-line-format
-                    (if tail
-                        (append (butlast mode-line-format (length tail))
-                                bar
-                                tail)
-                      (append mode-line-format bar)))))))
+                    (if (equal (car mode-line-format) "%e")
+                        (cons "%e" (append bar (cdr mode-line-format)))
+                      (append bar mode-line-format)))))))
 
 (provide 'chaplet-bar)
 ;;; chaplet-bar.el ends here

@@ -1332,5 +1332,25 @@ Mouse entries reflect the per-node hot-spot bindings installed on render."
     (should (= 1 (cl-count '(:eval (chaplet-bar--render)) mode-line-format
                            :test #'equal)))))
 
+(ert-deftest chaplet-test-bar-leading ()
+  "The bar is prepended, so it stays visible even when the mode line
+ends in a space-filler (regression: appending after the filler clipped it)."
+  (with-temp-buffer
+    (chaplet-bar--install)
+    (let ((mlf (if (equal (car mode-line-format) "%e")
+                   (cdr mode-line-format)
+                 mode-line-format)))
+      (should (equal (car mlf) '(:eval (chaplet-bar--render)))))))
+
+(ert-deftest chaplet-test-bar-not-after-filler ()
+  "The bar is inserted before `mode-line-end-spaces', not clipped after it."
+  (with-temp-buffer
+    (chaplet-bar--install)
+    (let ((bar-pos (cl-position '(:eval (chaplet-bar--render)) mode-line-format
+                                :test #'equal))
+          (filler-pos (cl-position 'mode-line-end-spaces mode-line-format)))
+      (should bar-pos)
+      (should (or (null filler-pos) (< bar-pos filler-pos))))))
+
 (provide 'chaplet-test)
 ;;; chaplet-test.el ends here
