@@ -540,5 +540,53 @@
               (string-match-p "digraph" (buffer-string))))
     (kill-buffer "*chaplet:graph*")))
 
+(ert-deftest chaplet-test-list-v-key ()
+  "`v' in `chaplet-list-mode-map' switches views."
+  :tags '(:chaplet)
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "v"))
+              'chaplet-list-set-view)))
+
+(ert-deftest chaplet-test-list-set-view-closed ()
+  "`chaplet-list-set-view' to `closed` renders closed beads."
+  :tags '(:chaplet)
+  (cl-letf (((symbol-function 'chaplet-bd-query)
+             (lambda (_q) '(((id . "bd-9") (status . "closed")
+                             (issue_type . "task") (title . "done"))))))
+    (unwind-protect
+        (progn
+          (chaplet-list-set-view 'closed)
+          (should (get-buffer "*chaplet:closed*"))
+          (should (with-current-buffer "*chaplet:closed*"
+                    (string-match-p "bd-9" (buffer-string)))))
+      (kill-buffer "*chaplet:closed*"))))
+
+(ert-deftest chaplet-test-bd-graph-dot-args ()
+  "`chaplet-bd-graph-dot' assembles graph/list args per filters."
+  :tags '(:chaplet)
+  (let ((captured nil))
+    (cl-letf (((symbol-function 'chaplet-bd--invoke)
+               (lambda (args) (setq captured args) (cons 0 "digraph {}"))))
+      (chaplet-bd-graph-dot nil)
+      (should (equal captured '("graph" "--dot" "--all")))
+      (chaplet-bd-graph-dot '((:closed . t)))
+      (should (equal captured '("list" "--format" "dot" "--all")))
+      (chaplet-bd-graph-dot '((:id . "bd-9")))
+      (should (equal captured '("graph" "--dot" "bd-9"))))))
+
+(ert-deftest chaplet-test-graph-include-closed ()
+  "`chaplet-graph' with a prefix arg requests closed beads."
+  :tags '(:chaplet)
+  (let ((captured nil))
+    (cl-letf (((symbol-function 'chaplet-bd-graph-dot)
+               (lambda (filters) (setq captured filters) nil)))
+      (chaplet-graph '(4))                 ; C-u prefix arg
+      (should (equal captured '((:closed . t)))))))
+
+(ert-deftest chaplet-test-list-s-key ()
+  "`s' in `chaplet-list-mode-map' opens the graph view."
+  :tags '(:chaplet)
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "s"))
+              'chaplet-graph)))
+
 (provide 'chaplet-test)
 ;;; chaplet-test.el ends here

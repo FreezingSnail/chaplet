@@ -384,3 +384,68 @@ emacs -Q --batch -L . -l chaplet-test \
   --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
 ```
 → 45 tests, 45 results as expected, 0 unexpected.
+
+## View switching (chaplet-9q2)
+
+Keybindings:
+
+```elisp
+;; chaplet-list-mode-map
+(define-key chaplet-list-mode-map (kbd "v") #'chaplet-list-set-view)
+;; chaplet-transient.el: "General" group gains
+("v" "switch view" chaplet-list-set-view)
+```
+
+- `v` in `chaplet-list-mode` → `chaplet-list-set-view` (completing-read
+  over inbox/open/in-progress/blocked/closed/all).
+- `? v` in transient → same view switch.
+- `closed` view renders finished beads (`status=closed`); `all` uses
+  `bd list --all`.
+
+## New tests (tag `:chaplet`, +2 → total 47)
+
+- `chaplet-test-list-v-key` — `lookup-key chaplet-list-mode-map (kbd "v")`
+  → `chaplet-list-set-view`.
+- `chaplet-test-list-set-view-closed` — cl-letf `chaplet-bd-query` →
+  one closed bead; `chaplet-list-set-view 'closed` builds `*chaplet:closed*`
+  buffer containing "bd-9".
+
+Verify: 47 tests, 47 results as expected, 0 unexpected.
+
+---
+
+# chaplet-7g5 — graph: include closed (prefix arg toggle)
+
+## chaplet-bd
+
+`chaplet-bd-graph-dot (&optional filters)` now honors `(:closed . t)`:
+
+- `(:id . "...")` → `("graph" "--dot" ID)`
+- `(:closed . t)` → `("list" "--format" "dot" "--all")` (includes closed)
+- else → `("graph" "--dot" "--all")` (open only)
+
+`bd graph` has no closed-inclusive flag; `bd list --format dot --all` returns
+all beads (closed marked `(closed)`).
+
+## chaplet-graph
+
+`(chaplet-graph &optional include-closed)` with `(interactive "P")`.
+Prefix arg (`C-u s`) → `(chaplet-bd-graph-dot '((:closed . t)))`.
+
+## chaplet-list
+
+`s` bound in `chaplet-list-mode-map` → `chaplet-graph` (guarded:
+`(unless (lookup-key ... (kbd "s"))`). `s` free (tabulated-list binds `S`
+for sort, not `s`). `(require 'chaplet-graph)` added.
+
+## Tests
+
++3 (total 50):
+
+- `chaplet-test-bd-graph-dot-args` — nil→graph --dot --all;
+  `(:closed . t)`→list --format dot --all; `(:id . "bd-9")`→graph --dot bd-9.
+- `chaplet-test-graph-include-closed` — `(chaplet-graph '(4))` forwards
+  `((:closed . t))`.
+- `chaplet-test-list-s-key` — `s` → `chaplet-graph`.
+
+Verify: 50 tests, 50 results as expected, 0 unexpected.

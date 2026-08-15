@@ -115,13 +115,20 @@ Returns nil if bd fails or the bead has no comments."
       (chaplet-bd--parse (cdr result)))))
 
 (defun chaplet-bd-graph-dot (&optional filters)
-  "Return dependency graph as DOT string via `bd graph --dot'.
-FILTERS may carry (:id . \"...\") to graph one issue; otherwise --all."
+  "Return dependency graph as DOT string.
+FILTERS may carry:
+  (:id . \"...\")  — graph one issue via `bd graph --dot ID'.
+  (:closed . t)    — include closed items via `bd list --format dot --all'.
+Otherwise `bd graph --dot --all' (open issues only)."
   (let* ((id (alist-get :id filters))
-         (result (chaplet-bd--invoke
-                  (append (list "graph" "--dot") (if id (list id) (list "--all"))))))
-    (when (= (car result) 0)
-      (cdr result))))
+         (closed (alist-get :closed filters))
+         (args (cond
+                (id     (list "graph" "--dot" id))
+                (closed (list "list" "--format" "dot" "--all"))
+                (t      (list "graph" "--dot" "--all")))))
+    (let ((result (chaplet-bd--invoke args)))
+      (when (= (car result) 0)
+        (cdr result)))))
 
 ;;; Writes
 

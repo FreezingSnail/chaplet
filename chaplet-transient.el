@@ -151,6 +151,7 @@ Rejection stays staged (a comment is added, the bead is not undeferred)."
     :if (lambda () (chaplet-transient--action-visible-p 'new)))]
   ["General"
    ("g" "refresh" chaplet-refresh)
+   ("v" "switch view" chaplet-list-set-view)
    ("s" "graph" chaplet-graph
     :if (lambda () (fboundp 'chaplet-graph)))]
   (interactive)

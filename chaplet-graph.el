@@ -43,10 +43,12 @@
                        m)))
     (current-buffer)))
 
-(defun chaplet-graph ()
-  "Render the bd dependency DAG for the current scope."
-  (interactive)
-  (let ((dot (chaplet-bd-graph-dot nil)))
+(defun chaplet-graph (&optional include-closed)
+  "Render the bd dependency DAG for the current scope.
+With prefix arg INCLUDE-CLOSED (e.g. `C-u'), include closed beads."
+  (interactive "P")
+  (let ((dot (chaplet-bd-graph-dot
+              (when include-closed '((:closed . t))))))
     (cond
      ((null dot) (message "chaplet: no graph data"))
      ((chaplet-graph--dot-available-p)

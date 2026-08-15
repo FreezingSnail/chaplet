@@ -5,6 +5,7 @@
 ;; switchable views and type/label filters.
 
 (require 'chaplet-bd)
+(require 'chaplet-graph)
 (require 'tabulated-list)
 
 ;;; Faces
@@ -171,6 +172,9 @@ Both filters are composed into the view's bd query (server-side)."
   (chaplet-list-refresh))
 
 (define-key chaplet-list-mode-map (kbd "RET") #'chaplet-list-open)
+(define-key chaplet-list-mode-map (kbd "v") #'chaplet-list-set-view)
+(unless (lookup-key chaplet-list-mode-map (kbd "s"))
+  (define-key chaplet-list-mode-map (kbd "s") #'chaplet-graph))
 
 ;;;###autoload
 (defun chaplet-list ()
