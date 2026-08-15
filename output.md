@@ -297,3 +297,50 @@ emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "cha
 
 Result: **Ran 97 tests, 97 results as expected, 0 unexpected** (6 new + 91 regression). Byte-compile: exit 0, 0 new warnings (only pre-existing chaplet.el `chaplet-mode` defcustom-group warning).
 
+# chaplet-uvy.9 — chaplet-graph: ASCII (box-drawing) renderer for fallback path
+
+## Interfaces implemented (chaplet-graph.el)
+
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-graph--text-render nodes edges focus-id)` | fn → void | Replaced the plain outline with a box-drawing ASCII DAG. One column per layer (root layer 0 rightmost); each node is a box `[id] title` + state tag, focused node prefixed `▶`, ghost nodes suffixed ` ~`. Edges: same row `──→`; different rows vertical `│` + horizontal run + `→` into the target box (`┐/└` for down, `┘/┌` for up). Same keys n/p/RET/d/f/g/c/q through `chaplet-graph--focus-id`. |
+| `(chaplet-graph--text-canvas nodes edges focus-id)` | fn → string | Pure canvas builder. Reuses `chaplet-graph--layers` + `--rows` (id-stable per layer). Column width = max node-line width; canvas rows are 1-char-string vectors so face text-properties survive painting. Trailing whitespace trimmed per line. |
+| `(chaplet-graph--text-node-line node focus-id)` | fn → string | `▶\| ` + `[id]` + title + state + `~`. Faces: id → `chaplet-id`; state → `chaplet-state-*`; deferred → `chaplet-staged` (graph nodes carry no labels, staged pool approximated by deferred). |
+| `(chaplet-graph--text-truncate title)` | fn → string | Truncate to `chaplet-graph--text-title-max` (24) cols + `…`. |
+| `(chaplet-graph--text-draw-edge canvas from-end from-row to-start to-row)` | fn → void | Orthogonal connector with arrow at the dependency box. |
+| `(chaplet-graph--text-put canvas x y ch)` | fn → void | Paints 1-char strings; crossing connectors merge to `┼`, arrows win. |
+| Defcustom | var | `chaplet-graph--text-title-max 24` (group `chaplet-graph`). |
+| Defconst | var | `chaplet-graph--text-gap 4` (column gap); `chaplet-graph--text-line-chars`. |
+
+Buffer-local vars (`--nodes/--edges/--focus-id/--text-mode/--include-closed`), keymap, `--render` signature, image path and `chaplet-bar` integration unchanged.
+
+## Example ASCII output (fixture: bd-3 → {bd-2 → bd-1, missing-dep}, focus bd-3)
+
+```
+ ▶[bd-3] three blocked┼──→ [bd-2] two deferred───→ [bd-1] one open
+                      └──────────────────────────→ [missing-dep] missing-dep (closed) closed ~
+```
+
+`┼` = same-row edge `──→` crossing the vertical trunk of the bd-3→missing-dep edge. Ghost `missing-dep` marked `~`, state tags colored (blocked/deferred/open/closed faces), focused node `▶`.
+
+## Tests (chaplet-test.el, ERT)
+
+Added 6 `chaplet-test-graph-text-*`: `columns` (layer per column, roots rightmost, root column stacked), `edges` (same-row `──→` + vertical `│` via a 5-bead DAG whose edge spans 2 rows), `focus` (▶ prefix on focused only), `ghost` (`~` marker), `truncation` (≤ 24 cols + `…`, helper + full render), `faces` (id → `chaplet-id`, deferred state → `chaplet-staged`). Updated `chaplet-test-graph-text-fallback` to the box-drawing format (`▶[bd-1]`, `──→`, `~`; focus still moves with n).
+
+## Verification
+
+```
+emacs -Q --batch -L . --eval '(byte-compile-file "chaplet-graph.el")'   # exit 0, no warnings
+emacs -Q --batch -L . --eval '(byte-compile-file "chaplet-test.el")'    # exit 0, no warnings
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
+```
+
+Result: **Ran 103 tests, 103 results as expected, 0 unexpected** (6 new + 1 updated + 96 regression).
+
+## Notes / deviations
+
+- Column order: root layer rightmost so dependency edges read left→right as `──→` (task-required connector). Layout `:y` is unused by the text renderer; rows come from per-column id sort (same as `--rows`).
+- Edge trunk hugs the FROM box (short FROM-side run); the TO-side horizontal may cross intermediate columns' empty rows — crossings allowed per task, merged to `┼` on contact.
+- Focus prefix `▶` is part of the box line, so an edge arrow into a focused node renders `→▶[id]` (arrow points at the focus marker). Tests assert `▶[id]`.
+- Staged face: graph nodes lack `labels`, so `deferred` state renders with `chaplet-staged` (documented in `--text-node-line`).
+- Fixed during dev: `(car (last rows))` → `(caar …)` (last row is a `(layer . nodes)` cons, not a number); canvas cells switched from char vectors to 1-char strings so `chaplet-face` text properties survive `concat` assembly.

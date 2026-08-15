@@ -75,6 +75,14 @@ KEY-STRING entries are checked against `chaplet-graph-mode-map'.")
     ("mouse-2" . "dependents"))
   "Static reference entries for the per-node mouse hot-spots.")
 
+(defcustom chaplet-graph--text-title-max 24
+  "Maximum title width (columns) before truncation in the ASCII renderer."
+  :type 'integer
+  :group 'chaplet-graph)
+
+(defconst chaplet-graph--text-gap 4
+  "Horizontal gap (columns) between node columns in the ASCII renderer.")
+
 (defun chaplet-graph--image-available-p ()
   "Return non-nil when inline SVG images can be displayed in this session."
   (and (display-images-p) (fboundp 'svg-image)))
@@ -122,23 +130,160 @@ Extracted from `this-command-keys' — image-map clicks are composed as
           (chaplet-graph--jump-dependents))
       (message "chaplet: no node at click"))))
 
+(defun chaplet-graph--text-truncate (title)
+  "Truncate TITLE to `chaplet-graph--text-title-max' columns, adding an ellipsis."
+  (if (<= (string-width title) chaplet-graph--text-title-max)
+      title
+    (let ((cut (truncate-string-to-width
+                title (max 1 (- chaplet-graph--text-title-max 1)))))
+      (concat cut "…"))))
+
+(defun chaplet-graph--text-node-line (node focus-id)
+  "Return the one-line box text for NODE: `▶[id] title state ~'.
+FOCUS-ID nodes get a ▶ prefix.  Faces: id → `chaplet-id', state →
+`chaplet-state-*' (deferred → `chaplet-staged' — graph nodes carry no
+labels, so the staged pool is approximated by the deferred state).
+Ghost nodes append a `~' marker."
+  (let* ((id (plist-get node :id))
+         (focused (equal id focus-id))
+         (prefix (if focused "▶" " "))
+         (id-str (propertize id 'face 'chaplet-id))
+         (title (chaplet-graph--text-truncate
+                 (or (plist-get node :title) "")))
+         (state (plist-get node :state))
+         (state-face (if (equal state "deferred")
+                         'chaplet-staged
+                       (chaplet-state-face state)))
+         (state-str (if state-face
+                        (concat " " (propertize state 'face state-face))
+                      ""))
+         (ghost-str (if (plist-get node :ghost) " ~" "")))
+    (concat prefix "[" id-str "] " title state-str ghost-str)))
+
+(defconst chaplet-graph--text-line-chars
+  '(?─ ?│ ?┌ ?┐ ?└ ?┘ ?┼ ?→)
+  "Connector characters used by the ASCII edge painter.")
+
+(defun chaplet-graph--text-put (canvas x y ch)
+  "Set 1-char string CH at (X . Y) in CANVAS (vector of char-string vectors).
+Crossing connector characters merge into ┼; arrows win over other chars.
+Text properties carried by CH are preserved."
+  (when (and (>= y 0) (< y (length canvas)))
+    (let ((row (aref canvas y)))
+      (when (and (>= x 0) (< x (length row)))
+        (let ((old (aref row x)))
+          (aset row x
+                (cond ((= (aref old 0) ? ) ch)
+                      ((= (aref ch 0) ?→) ch)
+                      ((and (memq (aref old 0) chaplet-graph--text-line-chars)
+                            (memq (aref ch 0) chaplet-graph--text-line-chars))
+                       "┼")
+                      (t ch))))))))
+
+(defun chaplet-graph--text-draw-edge (canvas from-end from-row to-start to-row)
+  "Draw an edge on CANVAS from box end (FROM-END . FROM-ROW) to box
+start (TO-START . TO-ROW).  Same row: `──→'.  Different rows: a vertical
+`│' plus a horizontal run with the arrow into the target box."
+  (let ((trunk (1+ from-end)))
+    (if (= from-row to-row)
+        (progn
+          (dotimes (i (- to-start trunk 1))
+            (chaplet-graph--text-put canvas (+ trunk i) from-row "─"))
+          (chaplet-graph--text-put canvas (1- to-start) from-row "→"))
+      (if (< from-row to-row)
+          (progn
+            (chaplet-graph--text-put canvas trunk from-row "┐")
+            (dotimes (i (- to-row from-row 1))
+              (chaplet-graph--text-put canvas trunk (+ from-row 1 i) "│"))
+            (chaplet-graph--text-put canvas trunk to-row "└")
+            (dotimes (i (- to-start trunk 2))
+              (chaplet-graph--text-put canvas (+ trunk 1 i) to-row "─"))
+            (chaplet-graph--text-put canvas (1- to-start) to-row "→"))
+        (progn
+          (chaplet-graph--text-put canvas trunk from-row "┘")
+          (dotimes (i (- from-row to-row 1))
+            (chaplet-graph--text-put canvas trunk (+ to-row 1 i) "│"))
+          (chaplet-graph--text-put canvas trunk to-row "┌")
+          (dotimes (i (- to-start trunk 2))
+            (chaplet-graph--text-put canvas (+ trunk 1 i) to-row "─"))
+          (chaplet-graph--text-put canvas (1- to-start) to-row "→"))))))
+
+(defun chaplet-graph--text-canvas (nodes edges focus-id)
+  "Build the ASCII box-drawing DAG text for NODES/EDGES (pure).
+Each layer becomes a column; the root layer (0) sits rightmost.  Returns
+a string with trailing whitespace trimmed from each line."
+  (if (null nodes)
+      ""
+    (let* ((layers (chaplet-graph--layers nodes))
+           (rows (chaplet-graph--rows nodes layers))
+           (max-layer (caar (last rows)))
+           (ncol (1+ max-layer))
+           (line-by-id (make-hash-table :test 'equal))
+           (pos (make-hash-table :test 'equal))
+           (col-width (make-vector ncol 0))
+           (height 0))
+      (dolist (row rows)
+        (let ((ns (cdr row))
+              (c (- max-layer (car row))))
+          (aset col-width c
+                (seq-max (mapcar (lambda (n)
+                                   (let ((l (chaplet-graph--text-node-line
+                                             n focus-id)))
+                                     (puthash (plist-get n :id) l line-by-id)
+                                     (string-width l)))
+                                 ns)))
+          (setq height (max height (length ns)))
+          (dotimes (r (length ns))
+            (puthash (plist-get (nth r ns) :id) (cons c r) pos))))
+      (let ((x 1) xs)
+        (dotimes (c ncol)
+          (push x xs)
+          (setq x (+ x (aref col-width c) chaplet-graph--text-gap)))
+        (setq xs (nreverse xs))
+        (let ((canvas (make-vector height nil))
+              (width (1+ x)))
+          (dotimes (r height)
+            (aset canvas r (make-vector width " ")))
+          (dolist (n nodes)
+            (let* ((p (gethash (plist-get n :id) pos))
+                   (cx (nth (car p) xs))
+                   (line (gethash (plist-get n :id) line-by-id)))
+              (dotimes (i (length line))
+                (chaplet-graph--text-put canvas (+ cx i) (cdr p)
+                                         (substring line i (1+ i))))))
+          (dolist (e edges)
+            (let* ((pf (gethash (car e) pos))
+                   (pt (gethash (cdr e) pos)))
+              (when (and pf pt)
+                (let ((fx (nth (car pf) xs)))
+                  (chaplet-graph--text-draw-edge
+                   canvas (+ fx (string-width
+                                 (gethash (car e) line-by-id))
+                                -1)
+                   (cdr pf)
+                   (nth (car pt) xs)
+                   (cdr pt))))))
+          (mapconcat (lambda (row)
+                       (let ((s (mapconcat #'identity row "")))
+                         (if (string-match "[ \t]+\\'" s)
+                             (substring s 0 (match-beginning 0))
+                           s)))
+                     (append canvas nil)
+                     "\n"))))))
+
 (defun chaplet-graph--text-render (nodes edges focus-id)
-  "Render NODES/EDGES as a navigable text outline in the current buffer.
-The focused node is marked with ▶.  Same keys as the image render
+  "Render NODES/EDGES as a box-drawing ASCII DAG in the current buffer.
+Each layer is a column (root layer rightmost); every node is a box
+`[id] title' plus state tag.  The focused node gets a ▶ prefix and ghost
+nodes a `~' marker.  Edges are drawn with `──→' between boxes on the
+same row and `│' plus a horizontal run between rows.  Faces come from
+`chaplet-face' (id/state/staged).  Same keys as the image render
 (n/p/RET/d/f/g/c/q) operate through `chaplet-graph--focus-id'."
   (let ((inhibit-read-only t))
     (erase-buffer)
-    (ignore edges)
-    (dolist (node nodes)
-      (let* ((id (plist-get node :id))
-             (focused (equal id focus-id)))
-        (insert (format "%s%s %s%s\n"
-                        (if focused "▶ " "   ")
-                        id
-                        (plist-get node :title)
-                        (if (plist-get node :ghost) " (ghost)" ""))))
-      (dolist (dep (plist-get node :deps))
-        (insert (format "    ↳ dep %s\n" dep))))
+    (let ((s (chaplet-graph--text-canvas nodes edges focus-id)))
+      (unless (string= s "")
+        (insert s "\n")))
     (goto-char (point-min))))
 
 (defun chaplet-graph--render (nodes edges focus-id)

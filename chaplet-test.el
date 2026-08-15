@@ -1118,18 +1118,100 @@ call executes."
           (should (equal rendered "bd-2")))))))
 
 (ert-deftest chaplet-test-graph-text-fallback ()
-  "Render falls back to a navigable text outline without images."
+  "Render falls back to a navigable ASCII DAG without images."
   (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
     (with-temp-buffer
       (let ((f (chaplet-test--graph-fixture)))
         (chaplet-graph--render (car f) (cdr f) "bd-1")
         (should chaplet-graph--text-mode)
-        (should (string-match-p "▶ bd-1" (buffer-string)))
-        (should (string-match-p "missing-dep (closed) (ghost)" (buffer-string)))
-        (should (string-match-p "↳ dep" (buffer-string)))
+        (should (string-match-p "▶\\[bd-1\\]" (buffer-string)))
+        (should (string-match-p "missing-dep.*~" (buffer-string)))
+        (should (string-match-p "──→" (buffer-string)))
         ;; Focus keys operate on the text outline (marker moves).
         (chaplet-graph--focus-next)
-        (should (string-match-p "▶ bd-2" (buffer-string)))))))
+        (should (string-match-p "▶\\[bd-2\\]" (buffer-string)))))))
+
+;;; chaplet-graph ASCII renderer tests (uvy.9)
+
+(defun chaplet-test-graph-text (focus-id)
+  "Render the graph fixture as ASCII text; return the buffer string."
+  (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
+    (with-temp-buffer
+      (let ((f (chaplet-test--graph-fixture)))
+        (chaplet-graph--render (car f) (cdr f) focus-id)
+        (buffer-string)))))
+
+(ert-deftest chaplet-test-graph-text-columns ()
+  "ASCII renderer puts each layer in its own column, roots rightmost."
+  (let ((s (chaplet-test-graph-text nil)))
+    ;; bd-3 (layer 2) leftmost, then bd-2, then the root layer rightmost.
+    (should (string-match-p "bd-3.*bd-2.*bd-1" s))
+    ;; Roots share one column: bd-1 above missing-dep.
+    (should (string-match-p "bd-1.*\n.*missing-dep" s))))
+
+(ert-deftest chaplet-test-graph-text-edges ()
+  "ASCII renderer draws same-row `──→' and vertical `│' connectors."
+  ;; c1 (layer 2) → a3 (layer 0, row 2) spans two rows, forcing a
+  ;; vertical trunk; c1→b1 and b1→a1 stay on one row.
+  (let ((beads '(((id . "a1") (title . "one") (status . "open")
+                  (dependencies . nil))
+                 ((id . "a2") (title . "two") (status . "open")
+                  (dependencies . nil))
+                 ((id . "a3") (title . "three") (status . "open")
+                  (dependencies . nil))
+                 ((id . "b1") (title . "bee") (status . "open")
+                  (dependencies . ("a1")))
+                 ((id . "c1") (title . "see") (status . "open")
+                  (dependencies . ("b1" "a3"))))))
+    (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
+      (with-temp-buffer
+        (let* ((layout (chaplet-graph--layout (chaplet-graph--nodes beads))))
+          (chaplet-graph--render (car layout) (cdr layout) nil)
+          (let ((s (buffer-string)))
+            (should (string-match-p "──→" s))
+            (should (string-match-p "│" s))))))))
+
+(ert-deftest chaplet-test-graph-text-focus ()
+  "ASCII renderer marks the focused node with a ▶ prefix."
+  (let ((s (chaplet-test-graph-text "bd-2")))
+    (should (string-match-p "▶\\[bd-2\\]" s))
+    (should-not (string-match-p "▶\\[bd-1\\]" s)))
+  (should-not (string-match-p "▶" (chaplet-test-graph-text nil))))
+
+(ert-deftest chaplet-test-graph-text-ghost ()
+  "Ghost nodes carry a `~' marker in the ASCII renderer."
+  (let ((s (chaplet-test-graph-text nil)))
+    (should (string-match-p "missing-dep.*~" s))))
+
+(ert-deftest chaplet-test-graph-text-truncation ()
+  "Titles longer than `chaplet-graph--text-title-max' are truncated."
+  (let ((long (make-string 60 ?x)))
+    (should (equal (chaplet-graph--text-truncate "ok") "ok"))
+    (should (string-suffix-p "…" (chaplet-graph--text-truncate long)))
+    (should (<= (string-width (chaplet-graph--text-truncate long))
+                chaplet-graph--text-title-max))
+    ;; Full render shows the ellipsis.
+    (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
+      (with-temp-buffer
+        (let* ((beads (list (list (cons 'id "bd-9")
+                                  (cons 'title long)
+                                  (cons 'status "open")
+                                  (cons 'issue_type "task")
+                                  (cons 'dependencies nil))))
+               (layout (chaplet-graph--layout (chaplet-graph--nodes beads))))
+          (chaplet-graph--render (car layout) (cdr layout) nil)
+          (should (string-match-p "…" (buffer-string))))))))
+
+(ert-deftest chaplet-test-graph-text-faces ()
+  "ASCII renderer applies chaplet-face faces to id and state."
+  (with-temp-buffer
+    (insert (chaplet-test-graph-text nil))
+    (goto-char (point-min))
+    (let ((p (search-forward "bd-1" nil t)))
+      (should (eq (get-text-property (1- p) 'face) 'chaplet-id)))
+    (goto-char (point-min))
+    (let ((p (search-forward "deferred" nil t)))
+      (should (eq (get-text-property (1- p) 'face) 'chaplet-staged)))))
 
 (ert-deftest chaplet-test-graph-refresh-preserves-focus ()
   "`chaplet-graph--refresh' re-fetches and keeps focus when still present."
