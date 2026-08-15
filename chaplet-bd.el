@@ -50,7 +50,7 @@ Handles `[]', `null', and a single bare object."
 
 (defconst chaplet-bd--fields
   '(id title description status priority issue_type owner labels
-        defer_until design acceptance created_at updated_at)
+        dependencies defer_until design acceptance created_at updated_at)
   "Fields present in a normalized bead alist, in order.")
 
 (defun chaplet-bd--normalize (parsed)
@@ -129,6 +129,13 @@ Otherwise `bd graph --dot --all' (open issues only)."
     (let ((result (chaplet-bd--invoke args)))
       (when (= (car result) 0)
         (cdr result)))))
+
+(defun chaplet-bd-graph-data (&optional include-closed)
+  "Return bead alists for the graph scope.
+INCLUDE-CLOSED nil → open beads only (`chaplet-bd-list' with nil filters);
+non-nil → include closed beads (`chaplet-bd-list' with `((:all . t))').
+Each bead alist carries `dependencies' (list of id strings)."
+  (chaplet-bd-list (if include-closed '((:all . t)) nil)))
 
 ;;; Writes
 

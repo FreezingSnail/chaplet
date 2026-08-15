@@ -7,32 +7,8 @@
 (require 'chaplet-bd)
 (require 'chaplet-graph)
 (require 'tabulated-list)
-
-;;; Faces
-
-(defgroup chaplet nil
-  "Magit-style bead browser over the `bd' CLI."
-  :group 'tools)
-
-(defface chaplet-state-deferred
-  '((t :foreground "#d19a66"))
-  "Face for deferred beads."
-  :group 'chaplet)
-
-(defface chaplet-state-in-progress
-  '((t :foreground "#61afef"))
-  "Face for in-progress beads."
-  :group 'chaplet)
-
-(defface chaplet-state-blocked
-  '((t :foreground "#e06c75"))
-  "Face for blocked beads."
-  :group 'chaplet)
-
-(defface chaplet-state-closed
-  '((t :foreground "#5c6370"))
-  "Face for closed beads."
-  :group 'chaplet)
+(require 'chaplet-face)
+(require 'cl-lib)
 
 ;;; Views
 
@@ -58,15 +34,6 @@
 (defun chaplet-list--view-query (view)
   "Return the bd query expression for VIEW, or nil for the all view."
   (cdr (assq view chaplet-list--views)))
-
-(defun chaplet-list--state-face (status)
-  "Return the face symbol for STATUS string, or nil."
-  (pcase status
-    ("deferred"    'chaplet-state-deferred)
-    ("in_progress" 'chaplet-state-in-progress)
-    ("blocked"     'chaplet-state-blocked)
-    ("closed"      'chaplet-state-closed)
-    (_ nil)))
 
 (defun chaplet-list--staged-p (bead)
   "Return non-nil if BEAD is staged: status=deferred AND label=staged.
@@ -94,18 +61,50 @@ back to status=deferred as a documented approximation."
         (chaplet-bd-query (chaplet-list--filters->query query chaplet-list--filters))
       (chaplet-bd-list (append '((:all . t)) chaplet-list--filters)))))
 
+(defun chaplet-list--priority-dot (priority)
+  "Return the priority display cell for PRIORITY (number or nil).
+A dot (● for high, · for medium/low) plus the priority number,
+propertized with the matching priority face; \"\" when PRIORITY is nil."
+  (if (null priority)
+      ""
+    (let* ((p (if (stringp priority) (string-to-number priority) priority))
+           (dot (if (>= p 2) "●" "·")))
+      (propertize (concat dot (number-to-string p))
+                  'face (chaplet-priority-face p)))))
+
 (defun chaplet-list--entry (bead)
-  "Return a tabulated-list entry (ID . [ID TYPE STATE P STAGED TITLE]) for BEAD."
-  (list (alist-get 'id bead)
-        (vector
-         (alist-get 'id bead)
-         (or (alist-get 'issue_type bead) "")
-         (propertize (or (alist-get 'status bead) "")
-                     'face (chaplet-list--state-face (alist-get 'status bead)))
-         (let ((p (alist-get 'priority bead)))
-           (if (null p) "" (number-to-string p)))
-         (if (chaplet-list--staged-p bead) "✔" "")
-         (or (alist-get 'title bead) ""))))
+  "Return a tabulated-list entry (ID . [ID TYPE STATE P STAGED TITLE]) for BEAD.
+Cells are propertized with `chaplet-face' faces: ID → `chaplet-id',
+State → pill face, P → priority dot+number, Type → type face, Staged → ✔."
+  (let ((id (or (alist-get 'id bead) ""))
+        (type (or (alist-get 'issue_type bead) ""))
+        (status (or (alist-get 'status bead) ""))
+        (priority (alist-get 'priority bead)))
+    (list id
+          (vector
+           (propertize id 'face 'chaplet-id)
+           (propertize type 'face (chaplet-type-face type))
+           (propertize status 'face (chaplet-state-face status))
+           (chaplet-list--priority-dot priority)
+           (if (chaplet-list--staged-p bead)
+               (propertize "✔" 'face 'chaplet-staged)
+             "")
+           (or (alist-get 'title bead) "")))))
+
+(defun chaplet-list--modeline ()
+  "Return a mode-line string for the chaplet bead browser.
+Format: \"chaplet <view> · <n> beads · <o> open · <b> blocked\".
+Counts are derived from the current `tabulated-list-entries' (state = col 3)."
+  (let ((rows (mapcar #'cadr tabulated-list-entries)))
+    (format "chaplet %s · %d beads · %d open · %d blocked"
+            chaplet-list--current-view
+            (length rows)
+            (cl-count "open" rows
+                      :key (lambda (r) (substring-no-properties (aref r 2)))
+                      :test #'string=)
+            (cl-count "blocked" rows
+                      :key (lambda (r) (substring-no-properties (aref r 2)))
+                      :test #'string=))))
 
 (defun chaplet-list--buffer-name (view)
   "Return the buffer name for VIEW."
@@ -169,6 +168,9 @@ Both filters are composed into the view's bd query (server-side)."
   (setq tabulated-list-padding 2)
   (setq tabulated-list-sort-key '("ID" . nil))
   (add-hook 'tabulated-list-revert-hook #'chaplet-list-refresh nil t)
+  (hl-line-mode 1)
+  (setq mode-line-process '(:eval (chaplet-list--modeline)))
+  (face-remap-add-relative 'header-line '(chaplet-header header-line))
   (chaplet-list-refresh))
 
 (defun chaplet-list--bind (key cmd)
@@ -181,6 +183,7 @@ Both filters are composed into the view's bd query (server-side)."
 (chaplet-list--bind (kbd "v") #'chaplet-list-set-view)
 (chaplet-list--bind (kbd "s") #'chaplet-graph)
 (chaplet-list--bind (kbd "q") #'quit-window)
+(define-key chaplet-list-mode-map [mouse-1] #'chaplet-list-open)
 
 ;;;###autoload
 (defun chaplet-list ()

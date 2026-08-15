@@ -1,489 +1,251 @@
-# chaplet-list — interface
+# chaplet-uvy.1 — chaplet-face.el: theme-adaptive face module
 
-tabulated-list bead browser (built on chaplet-bd). Views + filters.
+## Interfaces implemented (chaplet-face.el)
 
-## Commands
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-face-dark-p)` | fn → bool | Non-nil when `default` face background luminance < 0.5. Nil/unspecified bg counts light. |
+| `(chaplet-face-adapt)` | fn → void | `face-spec-set` every palette face from active dark/light palette. State faces: fg + dim bg + `:box t` (pill). Priority/type/staged: fg only. Idempotent, batch-safe. |
+| `(chaplet-face-setup)` | fn → void | Adapt + `(add-hook 'after-load-theme-hook #'chaplet-face-adapt)` (once). |
+| `(chaplet-state-face status)` | fn → face \| nil | deferred→`chaplet-state-deferred`, in_progress→`-in-progress`, blocked→`-blocked`, closed→`-closed`, open→`-open`, else nil. |
+| `(chaplet-state-color status)` | fn → string \| nil | Effective `:foreground` of state face via `face-attribute` (SVG fill); falls back to dark palette color when face unset. |
+| `(chaplet-priority-face p)` | fn → face \| nil | 2→high, 1→medium, 0→low (number or numeric string), else nil. |
+| `(chaplet-type-face type)` | fn → face \| nil | task/epic/bug → type faces, else nil. |
 
-```elisp
-(chaplet-list)                 ;; entry: open inbox (staged) view
-(chaplet-list-mode)            ;; derived from tabulated-list-mode
-(chaplet-list-refresh)         ;; re-run current view query, re-render
-(chaplet-list-set-view name)   ;; switch view (interactive)
-(chaplet-list-open id)         ;; RET → chaplet-detail, else raw bd show buffer
-(chaplet-list-filter type label) ;; filter by type/label (server-side)
-```
+Deffaces (14): `chaplet-state-{deferred,in-progress,blocked,closed,open}`, `chaplet-priority-{high,medium,low}`, `chaplet-type-{epic,task,bug}`, `chaplet-header`, `chaplet-staged`, `chaplet-id`. Defaults = dark palette (per design §4.1).
 
-## Helpers (internal)
+Palettes: `chaplet-face--dark-palette`, `chaplet-face--light-palette` (defconst alists, 12 entries each). Dim pill background derived by `color-mix` (18% fg into default bg); state-face membership via `chaplet-face--state-faces`.
 
-```elisp
-(chaplet-list--staged-p bead)     ;; status=deferred AND (labels nil | "staged" member)
-(chaplet-list--view-query view)   ;; view symbol → bd query expr (nil = all)
-(chaplet-list--entry bead)        ;; bead alist → (id . [id type state p staged title])
-(chaplet-list--fetch view)        ;; bead alists for view (+ active filters)
-(chaplet-list--filters->query base filters) ;; compose `field=value' clauses
-(chaplet-list--state-face status) ;; status → face symbol
-```
+## Tests (chaplet-test.el, ERT)
 
-## Views registry
+Added 10 `chaplet-test-face-*` tests: dark-p dark/light, adapt re-specs every palette face + idempotent, state-face mapping (5 states + unknown/nil), state-color mirrors face-attribute, state-color fallback to dark palette, priority-face mapping (incl. numeric string), type-face mapping, setup hook registered once, all deffaces defined.
 
-`chaplet-list--views` alist: `inbox→"status=deferred AND label=staged"`,
-`open→"status=open"`, `in-progress→"status=in_progress"`,
-`blocked→"status=blocked"`, `closed→"status=closed"`, `all→nil`
-(`all` → `(chaplet-bd-list '((:all . t)))`).
-
-## Staged? approach
-
-`bd list --json` lacks labels. inbox = server-side query
-`status=deferred AND label=staged`. Other views: `chaplet-list--staged-p`
-falls back to `status=deferred` when labels absent (documented approximation).
-
-## Column format
-
-`[("ID" 12) ("Type" 10) ("State" 12) ("P" 3) ("Staged" 7) ("Title" 60)]`.
-State column faces: `chaplet-state-deferred/-in-progress/-blocked/-closed`.
-Staged? = "✔" when staged. Buffer `*chaplet:<view>*`.
-
----
-
-# chaplet-bd — interface
-
-bd CLI bridge. ONLY module touching bd. Reads return elisp (JSON→alists);
-writes return t/nil (create returns id string).
-
-## Seam
-
-- `chaplet-bd-program` — defvar, default `"bd"`. Override for tests.
-
-## Reads
-
-```elisp
-(chaplet-bd-list &optional filters)     ;; → list of bead alists
-(chaplet-bd-query expr)                 ;; → list of bead alists
-(chaplet-bd-show id)                    ;; → bead alist | nil
-(chaplet-bd-graph-dot &optional filters);; → DOT string | nil
-```
-
-## Writes
-
-```elisp
-(chaplet-bd-create title type description) ;; → id-string | nil
-(chaplet-bd-comment id text)               ;; → boolean
-(chaplet-bd-undefer id)                    ;; → boolean (approve)
-(chaplet-bd-defer id)                      ;; → boolean
-(chaplet-bd-update-design id design)       ;; → boolean
-(chaplet-bd-update-acceptance id acc)      ;; → boolean
-(chaplet-bd-label id label)                ;; → boolean
-```
-
-## Helpers (internal)
-
-```elisp
-(chaplet-bd--root)              ;; → project root string (fallback default-directory)
-(chaplet-bd--invoke args)       ;; → (exit-code . stdout); runs `bd -C root ARGS`
-(chaplet-bd--filters->args filters) ;; → CLI arg list
-```
-
-## Bead alist shape (symbol keys, normalized)
-
-`id title description status priority issue_type owner labels defer_until
- design acceptance created_at updated_at`
-
-## Filters alist (keyword → value)
-
-`:status :type :priority :label :limit` → `--flag=value`
-`:all :ready :deferred` → bare flag when non-nil
-`:id` (graph-dot only) → positional issue id, else `--all`
-
-## bd JSON facts (v1.1.2, verified)
-
-`bd list --json` / `bd show --json --long` fields: `id title description
-status priority issue_type owner created_at created_by updated_at
-dependencies dependency_count dependent_count comment_count parent`.
-
-**NOT in JSON**: `labels`, `defer_until`, `design`, `acceptance` — these
-normalize to nil. Labels live behind `bd label list <id> --json` (separate
-command), not hydrated in list/show JSON.
-
-- `bd create <title> -t <type> -d <desc> --silent` → stdout is bare id.
-- `bd graph --dot [--all | <id>]` → DOT string.
-- `bd label add <id> <label>`, `bd update <id> --design/--acceptance <text>`,
-  `bd comment <id> <text>`, `bd undefer <id>`, `bd defer <id>`.
-
-## Tests
-
-`chaplet-test.el` (ERT, tag `chaplet`), `test/fake-bd` (committed fake CLI).
+## Verification
 
 ```
-emacs -Q --batch -L . -l chaplet-test \
-  --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
+emacs -Q --batch -L . -f batch-byte-compile chaplet-face.el   # exit 0, no warnings
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
 ```
 
----
+Result: **Ran 69 tests, 69 results as expected, 0 unexpected** (10 new + 59 pre-existing regression).
 
-# chaplet-detail — interface
+## Notes / deviations
 
-Read-only markdown detail buffer for a single bead.
+- No deviations from design §4.1/§7.1. Dim pill background computed via `color-mix` (fg 18% into default bg) rather than hardcoded per-face bg — palette stays a single `(face . color)` alist per design.
+- `defgroup chaplet` re-declared (also in chaplet-list.el) — duplicate group definition is allowed; will be unified when chaplet.el requires chaplet-face first (§4.5).
+- `chaplet-list.el` keeps its own legacy fg-only deffaces for the same 4 state names until uvy.3; same face symbols, last-loaded spec wins. No test impact.
 
-## Entry
+# chaplet-uvy.6 — chaplet.el: require chaplet-face + setup
 
-```elisp
-(chaplet-detail id)        ;; → read-only buffer *chaplet:detail:<id>* (pop-to-buffer)
-(chaplet-detail-mode)      ;; minor keymap: q quit, g refresh, c comment,
-                           ;;                a approve, r reject
-(chaplet-detail--render bead) ;; bead alist → markdown string (pure)
-```
+## Changes
 
-## Rendering
+- `chaplet.el`: added `(require 'chaplet-face)` first in require chain — order now `chaplet-face` → `chaplet-bd` → `chaplet-list` → `chaplet-transient` → `chaplet-detail` → `chaplet-graph` (design §4.5). Added top-level `(chaplet-face-setup)` call after requires → applies theme-adaptive palette at load and registers `after-load-theme-hook` → `chaplet-face-adapt`.
+- `chaplet-test.el`: new ERT `chaplet-test-entry-face-setup-on-load` — re-loads `chaplet.el` with `chaplet-face-setup` stubbed (cl-letf); asserts exactly one call at load. Requires short-circuit (deps already loaded), so only the top-level setup call executes.
 
-Header line: `# <title>` + `*id:* / *status:* / *priority:* / *type:*
-/ *owner:* / *created:*` + optional `*labels:*`.
+## Defgroup reconciliation
 
-Sections `## Description` / `## Design` / `## Acceptance` / `## Comments`
-(omitted when blank). Each comment renders `- **author** — text`.
+Duplicate `defgroup chaplet` (chaplet-face.el + chaplet-list.el) confirmed benign: loading via `(require 'chaplet)` loads chaplet-face first (defines group), chaplet-list re-declaration is a no-op update. No errors.
 
-## markdown-mode policy
-
-`(require 'markdown-mode nil t)` → markdown-mode if present; else
-fundamental-mode + `font-lock-mode` (no hard dep).
-
-## Actions (delegate to chaplet-transient when fboundp)
-
-`chaplet-detail-comment/approve/reject` — call `chaplet-transient-comment/
-approve/reject` (with bead id) if fboundp, else `message` fallback.
-
-## bd field discovery (v1.1.2, re-verified for detail)
-
-`bd show <id> --json --long` DOES include `design`, `labels`, and
-**`acceptance_criteria`** (not `acceptance`) when set. `chaplet-bd--normalize`
-maps `acceptance_criteria` → `acceptance`.
-
-Comments: `bd show <id> --json --long --include-comments` embeds a `comments`
-array; equivalently `bd comments <id> --json` → `[{id issue_id author text
-created_at}]`. `chaplet-bd-comments` uses the latter.
-
-Corrects earlier note: `design`/`labels`/`acceptance` ARE in show JSON (long)
-when present — only `defer_until` is absent.
-
----
-
-# chaplet-graph — interface
-
-Dependency DAG → inline SVG (Graphviz). No hard Graphviz dep — raw-DOT fallback.
-
-## Entry
-
-```elisp
-(chaplet-graph)                 ;; render current scope DAG → *chaplet:graph*
-```
-
-## Functions
-
-```elisp
-(chaplet-graph--dot-available-p)  ;; → boolean (executable-find of dot program)
-(chaplet-graph--dot->svg dot)     ;; DOT string → SVG string | nil (pipe `dot -Tsvg`)
-(chaplet-graph--render svg)       ;; SVG string → *chaplet:graph* buffer (image-mode when possible)
-(chaplet-graph--show-dot dot)     ;; raw DOT → *chaplet:graph* (fundamental-mode, q quits)
-```
-
-## dot invocation
-
-`chaplet-graph-dot-program` — defvar, default `"dot"`. Override for tests.
-`chaplet-graph--dot->svg` runs `call-process-region` → `dot -Tsvg`, reads stdin,
-writes stdout, returns buffer-string when exit 0, else nil.
-
-## Fallback
-
-dot absent (`chaplet-graph--dot-available-p` nil) → `chaplet-graph--show-dot`
-raw DOT + message "dot not found". Render failure (nil SVG) → same fallback +
-"graph render failed". Source: `(chaplet-bd-graph-dot nil)` (`bd graph --dot`).
-
-## Tests
-
-`chaplet-test.el` (ERT, tag `chaplet`), `test/fake-dot` (committed fake dot:
-emits fixed `<svg ...></svg>`, exit 0). 3 tests: dot-available-p, dot->svg, render.
-
----
-
-# chaplet-transient — interface
-
-Magit-style `transient` action menu, tailored per bead state. `?` opens it
-in `chaplet-list-mode`.
-
-## Entry / Commands
-
-```elisp
-(chaplet-transient)              ;; ? → dispatch popup for bead at point
-(chaplet-approve)                ;; a — (chaplet-bd-undefer id) + refresh
-(chaplet-reject)                 ;; r — read-string fb → (chaplet-bd-comment id "rejected: fb") + refresh
-(chaplet-comment)                ;; c — read-string → chaplet-bd-comment + refresh
-(chaplet-edit-design)            ;; e — read-string → chaplet-bd-update-design + refresh
-(chaplet-new)                    ;; n — title/type/desc prompts → chaplet-bd-create + refresh
-(chaplet-refresh)                ;; g — chaplet-list-refresh
-(chaplet-graph)                  ;; s — (existing) graph module entry; :if fboundp
-```
-
-All write actions (`approve`/`reject`/`comment`/`edit-design`/`new`) accept an
-optional ID arg and call `chaplet-transient--refresh` afterwards, which
-refreshes the originating list buffer (not the transient buffer).
-
-## State → actions (pure)
-
-```elisp
-(chaplet-transient--actions-for-state state)  ;; → list of action symbols
-(chaplet-transient--action-visible-p action)  ;; memq against captured state
-```
-
-- `deferred` (staged) → `(approve reject comment edit-design)`
-- `open` → `(comment edit-design new)`
-- everything else (`in_progress`/`blocked`/`closed`/nil) → `(comment)`
-
-Menu suffixes gated by `:if` lambdas on the captured
-`chaplet-transient--state`.
-
-## Bead at point
-
-```elisp
-(chaplet-transient--id-at-point)    ;; (derived-mode-p 'chaplet-list-mode) → tabulated-list-get-id
-(chaplet-transient--state-at-point) ;; id → (chaplet-bd-show id) → status
-```
-
-Context captured in prefix BODY before `transient-setup`:
-`chaplet-transient--id` / `--state` / `--list-buffer`.
-
-## Detail-buffer delegation (id-taking, no refresh)
-
-```elisp
-(chaplet-transient-approve id)  ;; chaplet-bd-undefer
-(chaplet-transient-reject  id)  ;; read-string → chaplet-bd-comment "rejected: fb"
-(chaplet-transient-comment id)  ;; read-string → chaplet-bd-comment
-```
-
-Consumed by `chaplet-detail-approve/reject/comment` (fboundp guard).
-
-## Key binding
-
-`(define-key chaplet-list-mode-map (kbd "?") #'chaplet-transient)` — no
-duplicate (chaplet-list-mode-map only bound RET before).
-
-## Dependency
-
-`(require 'transient)` — built-in since Emacs 29 (verified present, Emacs 30.2).
-
-## Tests
-
-Appended to `chaplet-test.el` (tag `chaplet`), 10 new tests:
-`actions-for-state`, `action-visible-p`, `approve`, `reject`, `comment`,
-`edit-design`, `new`, `refresh`, `graph-delegates`, `detail-approve`.
-Mocks via cl-letf on `chaplet-transient--id-at-point` + write/refresh fns.
-
----
-
-# chaplet — interface
-
-Entry point + global minor mode + keymap. Requires all modules.
-
-## Entry / Commands
-
-```elisp
-(chaplet)              ;; M-x chaplet → (chaplet-list-set-view 'inbox)
-(chaplet-mode &optional arg) ;; global minor mode (define-minor-mode, :global t)
-(chaplet-mode-map)     ;; keymap var: C-c b b → chaplet, C-c b s → chaplet-graph
-```
-
-## Requires
-
-`chaplet-bd`, `chaplet-list`, `chaplet-transient`, `chaplet-detail`,
-`chaplet-graph` (all direct, all built).
-
-## Keymap
-
-```elisp
-(defvar chaplet-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c b b") #'chaplet)
-    (define-key map (kbd "C-c b s") #'chaplet-graph)
-    map))
-```
-
-`?` → `chaplet-transient` already bound in `chaplet-list-mode-map` by
-`chaplet-transient.el` (no duplicate).
-
-## install.sh
-
-Doom-aware, idempotent, marker-based. `SNIPPET_MARKER` =
-`";; === chaplet (managed by install.sh) ==="`, end marker
-`";; === end chaplet ==="`. Detect Doom 3 `~/.config/doom/config.el`
-(XDG-aware), fallback `~/.emacs.d/init.el` (mkdir -p parent).
-`--install` (default) appends snippet when marker absent; `--uninstall`
-awk-strips marker→end inclusive. Plugin dir computed via
-`$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)` — not hardcoded.
-`set -euo pipefail`.
-
-Snippet:
-```elisp
-;; === chaplet (managed by install.sh) ===
-(add-to-list 'load-path "<plugin-dir>")
-(require 'chaplet)
-(chaplet-mode 1)
-;; === end chaplet ===
-```
-
-## Tests
-
-3 new tests (total 40): `chaplet-test-entry-opens-inbox`,
-`chaplet-test-mode-map`, `chaplet-test-mode-enable` (tag `:chaplet`).
-`chaplet-test-mode-enable` wraps toggle in `unwind-protect` →
-`(chaplet-mode -1)` to restore global state.
-
----
-
-# chaplet-00r.7 — integration (final)
-
-## Load order
-
-`chaplet.el` requires `chaplet-bd` → `chaplet-list` → `chaplet-transient` →
-`chaplet-detail` → `chaplet-graph`. Verified: `emacs -Q --batch -L . --eval
-'(require (quote chaplet))'` loads clean (no void-function / void-variable).
-
-## Byte-compile
-
-`emacs -Q --batch -L . -f batch-byte-compile chaplet.el chaplet-bd.el
-chaplet-list.el chaplet-detail.el chaplet-graph.el chaplet-transient.el`
-→ 0 errors. 2 pre-existing warnings (not new):
-
-- `chaplet.el:27:20: Warning: in defcustom for 'chaplet-mode': fails to
-  specify containing group`
-- `chaplet-detail.el:64:15: Warning: the function 'markdown-mode' is not
-  known to be defined.`
-
-## New integration tests (tag `:chaplet`, +5 → total 45)
-
-- `chaplet-test-full-loop-approve` — staged inbox → approve (undefer) →
-  bead gone from inbox. Real fake-bd, stateful.
-- `chaplet-test-full-loop-reject` — reject → fake-bd records
-  `COMMENT <id> rejected: <fb>`; bead stays staged.
-- `chaplet-test-smoke-entry` — `chaplet` → `chaplet-list-mode` +
-  `*chaplet:inbox*`; `?` bound to `chaplet-transient`.
-- `chaplet-test-graph-headless-render` — `display-images-p` nil →
-  `image-mode` not called (guard).
-- `chaplet-test-graph-headless-fallback` — dot absent → raw-DOT fallback,
-  no error in headless batch.
-
-## test/fake-bd (stateful mode)
-
-When `CHAPLET_FAKE_BD_STATE` set: `undefer` records `APPROVED <id>`,
-`comment` records `COMMENT <id> <text>`; `query` filters approved ids
-(inbox removal observable). Stateless otherwise (existing tests unchanged).
-State file: `test/.fake-bd-state` (gitignored, cleaned per-test via
-`chaplet-test--with-state` unwind-protect).
-
-## Verify
+## Verification
 
 ```
-emacs -Q --batch -L . -l chaplet-test \
-  --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
-```
-→ 45 tests, 45 results as expected, 0 unexpected.
-
-## View switching (chaplet-9q2)
-
-Keybindings:
-
-```elisp
-;; chaplet-list-mode-map
-(define-key chaplet-list-mode-map (kbd "v") #'chaplet-list-set-view)
-;; chaplet-transient.el: "General" group gains
-("v" "switch view" chaplet-list-set-view)
+emacs -Q --batch -L . -f batch-byte-compile chaplet.el          # exit 0
+emacs -Q --batch -L . --eval '(require (quote chaplet))'        # clean; chaplet-face loaded; after-load-theme-hook contains chaplet-face-adapt
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
 ```
 
-- `v` in `chaplet-list-mode` → `chaplet-list-set-view` (completing-read
-  over inbox/open/in-progress/blocked/closed/all).
-- `? v` in transient → same view switch.
-- `closed` view renders finished beads (`status=closed`); `all` uses
-  `bd list --all`.
+Result: **Ran 70 tests, 70 results as expected, 0 unexpected** (1 new + 69 regression).
 
-## New tests (tag `:chaplet`, +2 → total 47)
+## Notes / deviations
 
-- `chaplet-test-list-v-key` — `lookup-key chaplet-list-mode-map (kbd "v")`
-  → `chaplet-list-set-view`.
-- `chaplet-test-list-set-view-closed` — cl-letf `chaplet-bd-query` →
-  one closed bead; `chaplet-list-set-view 'closed` builds `*chaplet:closed*`
-  buffer containing "bd-9".
+- Byte-compile emits pre-existing warning `chaplet.el:31:20: defcustom for chaplet-mode: fails to specify containing group` (untouched; `define-minor-mode` `:group` absent since before this task). No new warnings.
+- `(chaplet-face-setup)` runs at load (top-level), not inside `chaplet-mode` activation, per design §4.5. Idempotent + batch-safe (face-spec-set only).
 
-Verify: 47 tests, 47 results as expected, 0 unexpected.
+# chaplet-uvy.3 — chaplet-list.el: visual restyle
 
----
+## Interfaces implemented (chaplet-list.el)
 
-# chaplet-7g5 — graph: include closed (prefix arg toggle)
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-list--priority-dot priority)` | fn → string | Priority cell: "●"/"·" dot + number, propertized with `chaplet-priority-face`; `""` when priority nil. ● = p≥2, · = p 0/1. |
+| `(chaplet-list--modeline)` | fn → string | "chaplet `<view>` · `<n>` beads · `<o>` open · `<b>` blocked", counted from `tabulated-list-entries` (state = col 3). |
+| `(chaplet-list--entry bead)` | fn → entry | Cells propertized: ID→`chaplet-id`, State→pill face (`chaplet-state-face` incl. open), P→priority dot+number, Type→`chaplet-type-face`, Staged→"✔" `chaplet-staged`. Public shape unchanged (id . [7-col vector]). |
 
-## chaplet-bd
+Removed from chaplet-list.el: legacy `defgroup chaplet` + 4 duplicate state deffaces + `chaplet-list--state-face` (superseded by `chaplet-state-face` from chaplet-face.el).
 
-`chaplet-bd-graph-dot (&optional filters)` now honors `(:closed . t)`:
+## Buffer chrome (chaplet-list-mode)
 
-- `(:id . "...")` → `("graph" "--dot" ID)`
-- `(:closed . t)` → `("list" "--format" "dot" "--all")` (includes closed)
-- else → `("graph" "--dot" "--all")` (open only)
+- `(require 'chaplet-face)` + `(require 'cl-lib)`.
+- `hl-line-mode 1` on entry.
+- `mode-line-process = '(:eval (chaplet-list--modeline))`.
+- Header face: `(face-remap-add-relative 'header-line '(chaplet-header header-line))` — buffer-local; persists across `tabulated-list-init-header` re-runs (sorting). Merges `chaplet-header` (bold) over `header-line` base. Note: Emacs 30.2 tabulated-list has no `tabulated-list-header` face (only `tabulated-list-fake-header` for the non-header-line path); header line face is `header-line`.
+- `(define-key chaplet-list-mode-map [mouse-1] #'chaplet-list-open)` — shadows tabulated-list's `[mouse-1]` sort binding in the table body; `"<header-line> <mouse-1>"` sort binding still wins on the header row.
+- `tabulated-list-padding` stays 2 (consistent with format widths; design §4.3).
 
-`bd graph` has no closed-inclusive flag; `bd list --format dot --all` returns
-all beads (closed marked `(closed)`).
+## Tests (chaplet-test.el, ERT)
 
-## chaplet-graph
+Added/updated 8 list tests: `chaplet-test-list-entry` + `-not-staged` (updated for propertized cells + "●2"/"·0" P column), `chaplet-test-list-entry-faces` (ID/state/priority/type/staged faces), `chaplet-test-list-priority-dot` (dot+face per priority), `chaplet-test-list-modeline` (view + counts), `chaplet-test-list-mouse-1` ([mouse-1] → open), `chaplet-test-list-buffer-style` (hl-line, mode-line-process, header face remap).
 
-`(chaplet-graph &optional include-closed)` with `(interactive "P")`.
-Prefix arg (`C-u s`) → `(chaplet-bd-graph-dot '((:closed . t)))`.
+## Verification
 
-## chaplet-list
-
-`s` bound in `chaplet-list-mode-map` → `chaplet-graph` (guarded:
-`(unless (lookup-key ... (kbd "s"))`). `s` free (tabulated-list binds `S`
-for sort, not `s`). `(require 'chaplet-graph)` added.
-
-## Tests
-
-+3 (total 50):
-
-- `chaplet-test-bd-graph-dot-args` — nil→graph --dot --all;
-  `(:closed . t)`→list --format dot --all; `(:id . "bd-9")`→graph --dot bd-9.
-- `chaplet-test-graph-include-closed` — `(chaplet-graph '(4))` forwards
-  `((:closed . t))`.
-- `chaplet-test-list-s-key` — `s` → `chaplet-graph`.
-
-Verify: 50 tests, 50 results as expected, 0 unexpected.
-
-# bd-2qy + bd-v87 — evil-aware bindings + graph closed toggle
-
-## chaplet-list--bind (evil-aware helper)
-
-```elisp
-(chaplet-list--bind key cmd)  ;; define-key + evil-define-key 'normal when evil present
+```
+emacs -Q --batch -L . -f batch-byte-compile chaplet-list.el chaplet-test.el   # exit 0, no warnings
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
 ```
 
-List keys (single source via helper): `RET`→chaplet-list-open, `v`→chaplet-list-set-view,
-`s`→chaplet-graph, `q`→quit-window. `?`→chaplet-transient bound via same helper
-(chaplet-transient.el). Old plain define-key + `unless lookup-key "s"` guard removed.
+Result: **Ran 75 tests, 75 results as expected, 0 unexpected** (5 new + 2 updated + 68 regression).
 
-## chaplet-graph — closed toggle
+## Notes / deviations
 
-```elisp
-chaplet-graph--include-closed      ;; defvar-local, buffer-local toggle state
-(chaplet-graph-mode)               ;; minor mode: q→quit-window, c→chaplet-graph-toggle-closed
-(chaplet-graph-toggle-closed)      ;; flip var, re-render via --refresh
-(chaplet-graph--refresh)           ;; dot := (chaplet-bd-graph-dot (when include-closed '((:closed . t))))
-(chaplet-graph &optional include-closed)  ;; (interactive "P"); C-u path preserved
+- Priority dot: ● for p≥2, · for p 0/1 (design specified "●" or "·" without exact split; chose filled dot for high).
+- `chaplet-list--state-face` deleted — sole call site was `chaplet-list--entry`; module `chaplet-state-face` handles all 5 states incl. `open`.
+- Header styling via `header-line` face remap rather than string-propertizing (survives sort re-init; matches Emacs 30.2 reality where `tabulated-list-header` face is absent).
+- Byte-compile clean; no new warnings in chaplet-list.el. Note: prior uvy.6 note about `chaplet-mode` defcustom warning is in chaplet.el, untouched.
+
+# chaplet-uvy.4 — chaplet-graph: pure layout + SVG pipeline
+
+## Interfaces implemented (chaplet-graph.el, design §4.4)
+
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-graph--nodes beads)` | fn → plists | bead alists → `(:id :title :state :type :priority :deps)`; title truncated to `chaplet-graph--title-max` (28) cols w/ ellipsis. |
+| `(chaplet-graph--layout nodes)` | fn → `(nodes . edges)` | Layered top-down DAG. Layer = longest-path from roots; ghost deps depth 0. Per-layer id-stable sort. `w=max(min(title-width,28)*7+pad,90)`, `h=28`. x cumulative + x-gap, row centered on canvas midpoint; `y=margin+layer*(h+y-gap)`. Nodes gain `:x :y :w :h`. Edges `(FROM . TO)` — FROM depends on TO (arrow TO-ward). Ghost nodes appended for unknown deps (`:ghost t`, closed state, `" (closed)"` suffix). Deterministic, pure, headless-safe. |
+| `(chaplet-graph--svg nodes edges focus-id)` | fn → svg DOM | `svg-create` + `svg-rectangle` (state-color fill via `chaplet-state-color`, id `node-<id>`), `svg-text` (id bold + title, white on fill), `svg-line` + `svg-polygon` arrowhead per edge (gray), focus halo = 3px stroke-width rect when `focus-id` matches. |
+| `(chaplet-graph--svg-string svg)` | fn → string | `svg-print` into temp buffer. |
+| `(chaplet-graph--image-map nodes)` | fn → `:map` alist | One `(AREA ID PLIST)` region per node; `AREA=(rect . ((x1 . y1) . (x2 . y2)))`, ID = interned node id (events `[ID mouse-1]`/`[ID mouse-2]`), PLIST `help-echo "id — title"`. |
+| Helpers | fns | `chaplet-graph--truncate`, `--node`, `--ghost-node`, `--add-ghosts`, `--layers`, `--node-w`, `--row-width`, `--sort-by-id`, `--rows`, `--canvas-size`, `--node-color`, `--draw-node`, `--draw-edge`. |
+
+Defcustoms (group `chaplet-graph`): `chaplet-graph--x-gap 28`, `--y-gap 40`, `--node-h 28`, `--title-max 28`, `--pad 8`, `--margin 16` (design §5.4).
+
+Depends: `chaplet-bd` (graph-data), `chaplet-face` (`chaplet-state-color` fills), built-in `svg` + `dom`. Zero external deps. Existing Graphviz-based entry/render/mode kept intact (back-compat; uvy.5 rewrites buffer/nav/text-fallback).
+
+## Tests (chaplet-test.el, ERT)
+
+Added 12 `chaplet-test-graph-*`: nodes conversion, title truncation, layered ordering (roots top, ghost at root layer, y math), same-layer non-overlap + min width, ghost node (flag/suffix/closed/edge), determinism + empty input, svg elements (rect/text/line/polygon counts, node id, state fill), focus halo iff focus-id, svg string (contains `<svg`/node id/polygon), image-map regions (shape, coords, help-echo), image-map event dispatch (`[id mouse-1]`/`[id mouse-2]`).
+
+## Verification
+
+```
+emacs -Q --batch -L . -f batch-byte-compile chaplet-graph.el   # exit 0, no warnings
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
 ```
 
-Mode enabled in both render paths (SVG image-mode + DOT fallback).
-Mode-line hint: `mode-line-process` = " closed" when toggled on.
+Result: **Ran 86 tests, 86 results as expected, 0 unexpected** (12 new + 74 pre-existing regression).
 
-## Tests
+## Notes / deviations
 
-+6 (total 56), tags `chaplet`:
+- **Image map format**: design §7.4/Appendix C research note (`((rect (x1 . y1) (x2 . y2)) keymap)`) does not match Emacs 30.2 reality. Elisp manual "Image Descriptors" format is `(AREA ID PLIST)`; hot-spot clicks compose `[ID mouse-1]` events and regions carry `help-echo`/`pointer` only — no per-region keymap. Implemented per manual; region IDs interned to symbols so `[bd-1 mouse-1]` dispatch works in the graph keymap (uvy.5 binds those to open/dependents).
+- Ghost deps counted at depth 0 → ghost nodes render at root layer (per task: "ghost deps treated as depth 0 + 1").
+- Edge arrowheads drawn as `svg-polygon` triangles (svg.el has no marker/defs helper); "same-layer elbow" (§4.4 step 5) is a no-op — same-layer edges cannot occur in longest-path layering.
+- `chaplet-graph--svg` returns the svg DOM object (design §4.4); string via `chaplet-graph--svg-string`.
+- Buffer/nav/keys/text-fallback intentionally not in this task (uvy.5); old Graphviz entry path still live for existing tests.
 
-- `chaplet-test-list-bind-keys` — RET/v/s/q in chaplet-list-mode-map.
-- `chaplet-test-list-bind-question` — `?` → chaplet-transient.
-- `chaplet-test-list-bind-evil` — helper calls evil-define-key 'normal (featurep/evil-define-key stubbed).
-- `chaplet-test-graph-toggle-closed` — flips var both ways.
-- `chaplet-test-graph-refresh-closed` — `:closed t` passed when var t; nil passed when not.
-- `chaplet-test-graph-mode-map` — c/q bound.
+# chaplet-uvy.5 — chaplet-graph: buffer, navigation, text fallback
 
-Verify: 56 tests, 56 results as expected, 0 unexpected.
+## Interfaces implemented (chaplet-graph.el, design §4.4)
+
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-graph &optional include-closed)` | cmd (interactive `"P"`) | Entry. C-u → closed. Creates `*chaplet:graph*`, sets buffer-local `chaplet-graph--include-closed`, `chaplet-graph--refresh`, `pop-to-buffer`. |
+| `(chaplet-graph-mode)` | minor mode | Keymap `chaplet-graph-mode-map`: `n`→`chaplet-graph--focus-next`, `p`→`--focus-prev`, `RET`→`--open-focused`, `d`→`--jump-dependents`, `f`→`--jump-deps`, `g`→`--refresh`, `c`→`chaplet-graph-toggle-closed`, `q`→`quit-window`. |
+| `(chaplet-graph--render nodes edges focus-id)` | fn → buffer | Erase + render current buffer. Image path: `svg-image` + `:map`, `insert-image`, `image-mode 1`. Fallback (no display or `svg-image` nil): `chaplet-graph--text-render`. Sets buffer-locals `chaplet-graph--nodes/--edges/--focus-id/--text-mode`; installs `[ID mouse-1]`/`[ID mouse-2]` bindings; mode-line. |
+| `(chaplet-graph--refresh)` | cmd | Re-fetch `(chaplet-bd-graph-data include-closed)` → `--nodes` → `--layout` → `--render`. Preserves `chaplet-graph--focus-id` iff focused id still in new node set; else nil. `nil` beads → message, prior buffer kept (§6). |
+| `(chaplet-graph--focus-next/-prev)` | cmds | `chaplet-graph--focus-relative ±1`: cycle over `chaplet-graph--nodes` order (input order + ghosts appended), re-render w/ focus halo. |
+| `(chaplet-graph--open-focused)` | cmd | `(chaplet-detail chaplet-graph--focus-id)`; message when no focus. |
+| `(chaplet-graph--jump-dependents)` / `(--jump-deps)` | cmds | `d`: focus first node with edge `(dep . focus)`; `f`: focus first `(focus . dep)` target. Re-render; message when none. |
+| `(chaplet-graph-toggle-closed)` | cmd | Flip buffer-local include-closed, refresh. |
+| `(chaplet-graph--text-render nodes edges focus-id)` | fn | Navigable outline: one line per node `▶/   ID title` (+ ` (ghost)` suffix), `↳ dep ID` lines; focus marker moves with n/p. Same keymap. |
+| `(chaplet-graph--image-available-p)` | fn → bool | `(and (display-images-p) (fboundp 'svg-image))`. |
+| `(chaplet-graph--bind-node-events nodes)` | fn | Replaces previous render's `[ID mouse-1]`→`chaplet-graph--open-node`, `[ID mouse-2]`→`chaplet-graph--node-dependents` in `chaplet-graph-mode-map`. |
+| `(chaplet-graph--clicked-id)` | fn → sym \| nil | `(aref (this-command-keys-vector) 0)` of the `[ID mouse-N]` hot-spot key sequence. |
+| Buffer-locals | vars | `chaplet-graph--nodes` (node plists w/ xywh), `--edges`, `--focus-id`, `--text-mode`, `--include-closed`. |
+
+Removed: Graphviz path (`chaplet-graph-dot-program`, `--dot-available-p`, `--dot->svg`, `--show-dot`, raw-DOT fallback) per design Appendix A ("dot dropped").
+
+## Tests (chaplet-test.el, ERT)
+
+Added 8 `chaplet-test-graph-*` nav tests: `mode-map` (full key set n/p/RET/d/f/g/c/q), `focus-cycle` (next/prev + wrap + re-render, no-focus → first), `open-focused` (chaplet-detail called w/ id; no-op w/o focus), `jump` (d/f along edges w/ re-render), `text-fallback` (outline content, ▶ marker, ghost suffix, n moves marker), `refresh-preserves-focus` (graph-data forwarded, focus kept/dropped), `mouse-bindings` (`[ID mouse-1/2]` installed per node), `clicked-id` (id recovered from `this-command-keys-vector`).
+
+Updated 6 legacy tests to the new pipeline (no longer Graphviz): `graph-render`, `headless-render`, `headless-fallback` (text outline, not raw DOT), `graph-include-closed` (stubs `chaplet-bd-graph-data`), `graph-toggle-closed`, `graph-refresh-closed` (forwards include-closed). Deleted `graph-dot-available-p` + `graph-dot->svg` (feature removed).
+
+## Verification
+
+```
+emacs -Q --batch -L . -f batch-byte-compile chaplet-graph.el   # exit 0, no warnings
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
+```
+
+Result: **Ran 91 tests, 91 results as expected, 0 unexpected** (8 new nav + 4 rewritten legacy + 12 uvy.4 pipeline + 67 regression). Full multi-file byte-compile: exit 0, only pre-existing warnings (chaplet.el `chaplet-mode` defcustom group; chaplet-detail `markdown-mode` declare).
+
+## Notes / deviations
+
+- Hot-spot click commands recover the node id from `(this-command-keys-vector)` — the `[ID mouse-N]` key sequence composed per the elisp manual — instead of an event arg; verified dispatch convention against Emacs 30.2 manual "Image Descriptors" + image.el source (`image--compute-map`).
+- Node order for focus cycling = `chaplet-graph--layout` output order (input order with ghosts appended), not per-layer order; documented in `--focus-relative`.
+- `chaplet-graph--text-render` keeps the design signature `(nodes edges focus-id)`; `edges` currently unused (dep lines come from `:deps`), silenced with `(ignore edges)`.
+- Emacs `let` init forms cannot reference earlier bindings of the same `let` — used `let*` in `--text-render` (byte-compiler caught the original).
+- `chaplet-graph-mode` now uses an explicit `defvar chaplet-graph-mode-map` (define-minor-mode skips map creation when `:keymap` is a symbol) so `--bind-node-events` can mutate it per render.
+- Old Graphviz tests removed with the feature (design Appendix A drops `dot`); `test/fake-dot` left in place (harmless).
+
+# chaplet-uvy.7 — Integration: docs, byte-compile, full test pass
+
+## Final interface summary (epic complete)
+
+### New module: chaplet-face.el (theme-adaptive faces + SVG colors)
+
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-face-dark-p)` | fn → bool | Non-nil when `default` face bg luminance < 0.5; nil/unspecified = light. |
+| `(chaplet-face-adapt)` | fn → void | `face-spec-set` every palette face from active dark/light palette. State faces: fg + dim bg (`color-mix` 18%) + `:box t`. Idempotent, batch-safe. |
+| `(chaplet-face-setup)` | fn → void | Adapt + `after-load-theme-hook` → adapt (once). |
+| `(chaplet-state-face status)` | fn → face \| nil | deferred/in_progress/blocked/closed/open → state faces. |
+| `(chaplet-state-color status)` | fn → string \| nil | Effective state-face `:foreground` (SVG fill); dark-palette fallback when unset. |
+| `(chaplet-priority-face p)` / `(chaplet-type-face t)` | fn → face \| nil | priority 2/1/0 (or numeric string); type task/epic/bug. |
+
+14 deffaces; `chaplet-face--{dark,light}-palette` (12 entries each); `chaplet-face--state-faces`. Single palette source for list text + graph fills.
+
+### chaplet-bd.el: `(chaplet-bd-graph-data &optional include-closed)`
+
+fn → bead alist list. nil → `(chaplet-bd-list nil)` [open]; t → `(chaplet-bd-list '((:all . t)))` [all]. Beads carry `dependencies` (id strings). Legacy `chaplet-bd-graph-dot` retained unchanged (back-compat only; graph view no longer uses it).
+
+### chaplet-list.el (restyle — public interface unchanged)
+
+- `chaplet-list--priority-dot` — "●"/"·" + number, priority face; `""` when nil.
+- `chaplet-list--modeline` — "chaplet `<view>` · `<n>` beads · `<o>` open · `<b>` blocked".
+- `chaplet-list--entry` — cells propertized (ID→`chaplet-id`, State→pill, P→dot, Type→type face, Staged→"✔"); public `(id . [7-col])` shape unchanged.
+- Buffer chrome: `hl-line-mode 1`, `mode-line-process`, `header-line` face remap, `[mouse-1]`→`chaplet-list-open`.
+- Removed: legacy `defgroup`/duplicate state deffaces/`chaplet-list--state-face`.
+
+### chaplet-graph.el (rewrite — pure pipeline + navigable buffer)
+
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-graph &optional include-closed)` | cmd | Entry; C-u → closed. `*chaplet:graph*`, `chaplet-graph--refresh`, `pop-to-buffer`. |
+| `(chaplet-graph-mode)` | minor mode | Keys: `n`/`p` focus next/prev, `RET` open focused, `d` dependents, `f` deps, `g` refresh, `c` toggle closed, `q` quit. Node hot-spots `[ID mouse-1]` (open) / `[ID mouse-2]` (dependents). |
+| `(chaplet-graph--nodes beads)` | fn → plists | `(:id :title :state :type :priority :deps)`; title ≤ 28 cols. |
+| `(chaplet-graph--layout nodes)` | fn → `(nodes . edges)` | Longest-path layered DAG; ghosts for unknown deps (depth 0); xywh per node; deterministic. |
+| `(chaplet-graph--svg nodes edges focus-id)` | fn → svg DOM | State-color fills, arrowheads, 3px focus halo iff focus-id. |
+| `(chaplet-graph--image-map nodes)` | fn → `:map` | `(rect coords ID help-echo)` per node. |
+| `(chaplet-graph--render nodes edges focus-id)` | fn → buffer | SVG image + `:map`; text-outline fallback when no images. |
+| `(chaplet-graph--text-render nodes edges focus-id)` | fn | Navigable outline (`▶` marker, ghost suffix, `↳ dep` lines), same keys. |
+
+Removed: Graphviz path (`chaplet-graph-dot-program`, `--dot-available-p`, `--dot->svg`, `--show-dot`, raw-DOT fallback) — `dot` dropped per design Appendix A. Zero external deps.
+
+## Files
+
+NEW `chaplet-face.el`; MOD `chaplet-bd.el`, `chaplet-list.el`, `chaplet-graph.el` (rewrite), `chaplet.el` (require order + `(chaplet-face-setup)`), `chaplet-test.el`, `test/fake-bd` (dependencies fixture); MOD `output.md`. No README/docs present in repo — nothing to update.
+
+## Verification (final, all modules)
+
+```
+emacs -Q --batch -L . -f batch-byte-compile chaplet-face.el chaplet-bd.el \
+  chaplet-list.el chaplet-graph.el chaplet.el chaplet-detail.el \
+  chaplet-transient.el chaplet-test.el
+```
+
+Exit 0. 2 pre-existing warnings unchanged: chaplet.el `chaplet-mode` defcustom group; chaplet-detail `markdown-mode` not-known. 0 new errors/warnings.
+
+```
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
+```
+
+**Ran 91 tests, 91 results as expected, 0 unexpected** (10 face + 3 graph-data + 8 list restyle + 12 layout/SVG + 8 nav + 50 regression/integration).

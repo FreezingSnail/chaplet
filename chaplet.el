@@ -4,11 +4,15 @@
 ;; exposes `M-x chaplet' (open the staged inbox), a global minor mode
 ;; `chaplet-mode', and its keymap (`C-c b b' → chaplet, `C-c b s' → graph).
 
+(require 'chaplet-face)
 (require 'chaplet-bd)
 (require 'chaplet-list)
 (require 'chaplet-transient)
 (require 'chaplet-detail)
 (require 'chaplet-graph)
+
+;; Apply theme-adaptive faces at load; re-adapt on theme changes.
+(chaplet-face-setup)
 
 ;;;###autoload
 (defun chaplet ()
