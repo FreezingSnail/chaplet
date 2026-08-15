@@ -171,10 +171,16 @@ Both filters are composed into the view's bd query (server-side)."
   (add-hook 'tabulated-list-revert-hook #'chaplet-list-refresh nil t)
   (chaplet-list-refresh))
 
-(define-key chaplet-list-mode-map (kbd "RET") #'chaplet-list-open)
-(define-key chaplet-list-mode-map (kbd "v") #'chaplet-list-set-view)
-(unless (lookup-key chaplet-list-mode-map (kbd "s"))
-  (define-key chaplet-list-mode-map (kbd "s") #'chaplet-graph))
+(defun chaplet-list--bind (key cmd)
+  "Bind KEY to CMD in `chaplet-list-mode-map', evil-normal aware."
+  (define-key chaplet-list-mode-map key cmd)
+  (when (and (featurep 'evil) (fboundp 'evil-define-key))
+    (evil-define-key 'normal chaplet-list-mode-map key cmd)))
+
+(chaplet-list--bind (kbd "RET") #'chaplet-list-open)
+(chaplet-list--bind (kbd "v") #'chaplet-list-set-view)
+(chaplet-list--bind (kbd "s") #'chaplet-graph)
+(chaplet-list--bind (kbd "q") #'quit-window)
 
 ;;;###autoload
 (defun chaplet-list ()

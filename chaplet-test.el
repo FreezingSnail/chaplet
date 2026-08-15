@@ -588,5 +588,70 @@
   (should (eq (lookup-key chaplet-list-mode-map (kbd "s"))
               'chaplet-graph)))
 
+(ert-deftest chaplet-test-list-bind-keys ()
+  "RET/v/s/q bound in `chaplet-list-mode-map' (plain + evil-aware)."
+  :tags '(:chaplet)
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "RET")) 'chaplet-list-open))
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "v")) 'chaplet-list-set-view))
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "s")) 'chaplet-graph))
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "q")) 'quit-window)))
+
+(ert-deftest chaplet-test-list-bind-question ()
+  "`?' bound via the evil-aware helper in `chaplet-list-mode-map'."
+  :tags '(:chaplet)
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "?")) 'chaplet-transient)))
+
+(ert-deftest chaplet-test-list-bind-evil ()
+  "`chaplet-list--bind' also binds in evil normal state when evil present."
+  :tags '(:chaplet)
+  (let (called)
+    (cl-letf (((symbol-function 'featurep)
+               (lambda (f) (eq f 'evil)))
+              ((symbol-function 'evil-define-key)
+               (lambda (state map key cmd)
+                 (setq called (list state map key cmd)))))
+      (chaplet-list--bind (kbd "x") #'ignore))
+    (should (equal (nth 0 called) 'normal))
+    (should (eq (nth 1 called) chaplet-list-mode-map))
+    (should (equal (nth 2 called) (kbd "x")))
+    (should (eq (nth 3 called) #'ignore))))
+
+(ert-deftest chaplet-test-graph-toggle-closed ()
+  "`chaplet-graph-toggle-closed' flips `chaplet-graph--include-closed'."
+  :tags '(:chaplet)
+  (with-temp-buffer
+    (setq-local chaplet-graph--include-closed nil)
+    (cl-letf (((symbol-function 'chaplet-bd-graph-dot)
+               (lambda (_filters) nil)))
+      (chaplet-graph-toggle-closed)
+      (should chaplet-graph--include-closed)
+      (chaplet-graph-toggle-closed)
+      (should-not chaplet-graph--include-closed))))
+
+(ert-deftest chaplet-test-graph-refresh-closed ()
+  "`chaplet-graph--refresh' passes `:closed t' to graph-dot when var set."
+  :tags '(:chaplet)
+  (let (captured)
+    (with-temp-buffer
+      (setq-local chaplet-graph--include-closed t)
+      (cl-letf (((symbol-function 'chaplet-bd-graph-dot)
+                 (lambda (filters) (setq captured filters) nil)))
+        (chaplet-graph--refresh)
+        (should (equal captured '((:closed . t))))))
+    (setq captured :unset)
+    (with-temp-buffer
+      (setq-local chaplet-graph--include-closed nil)
+      (cl-letf (((symbol-function 'chaplet-bd-graph-dot)
+                 (lambda (filters) (setq captured filters) nil)))
+        (chaplet-graph--refresh)
+        (should (null captured))))))
+
+(ert-deftest chaplet-test-graph-mode-map ()
+  "`chaplet-graph-mode-map' binds c (toggle) and q (quit)."
+  :tags '(:chaplet)
+  (should (eq (lookup-key chaplet-graph-mode-map (kbd "c"))
+              'chaplet-graph-toggle-closed))
+  (should (eq (lookup-key chaplet-graph-mode-map (kbd "q")) 'quit-window)))
+
 (provide 'chaplet-test)
 ;;; chaplet-test.el ends here

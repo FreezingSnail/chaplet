@@ -160,9 +160,9 @@ Rejection stays staged (a comment is added, the bead is not undeferred)."
   (setq chaplet-transient--list-buffer (current-buffer))
   (transient-setup 'chaplet-transient))
 
-;;; Key binding (no duplicate: chaplet-list-mode-map has no `?' yet)
+;;; Key binding (evil-aware via the helper: no duplicate, single source)
 
-(define-key chaplet-list-mode-map (kbd "?") #'chaplet-transient)
+(chaplet-list--bind (kbd "?") #'chaplet-transient)
 
 (provide 'chaplet-transient)
 ;;; chaplet-transient.el ends here

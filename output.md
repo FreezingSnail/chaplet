@@ -449,3 +449,41 @@ for sort, not `s`). `(require 'chaplet-graph)` added.
 - `chaplet-test-list-s-key` — `s` → `chaplet-graph`.
 
 Verify: 50 tests, 50 results as expected, 0 unexpected.
+
+# bd-2qy + bd-v87 — evil-aware bindings + graph closed toggle
+
+## chaplet-list--bind (evil-aware helper)
+
+```elisp
+(chaplet-list--bind key cmd)  ;; define-key + evil-define-key 'normal when evil present
+```
+
+List keys (single source via helper): `RET`→chaplet-list-open, `v`→chaplet-list-set-view,
+`s`→chaplet-graph, `q`→quit-window. `?`→chaplet-transient bound via same helper
+(chaplet-transient.el). Old plain define-key + `unless lookup-key "s"` guard removed.
+
+## chaplet-graph — closed toggle
+
+```elisp
+chaplet-graph--include-closed      ;; defvar-local, buffer-local toggle state
+(chaplet-graph-mode)               ;; minor mode: q→quit-window, c→chaplet-graph-toggle-closed
+(chaplet-graph-toggle-closed)      ;; flip var, re-render via --refresh
+(chaplet-graph--refresh)           ;; dot := (chaplet-bd-graph-dot (when include-closed '((:closed . t))))
+(chaplet-graph &optional include-closed)  ;; (interactive "P"); C-u path preserved
+```
+
+Mode enabled in both render paths (SVG image-mode + DOT fallback).
+Mode-line hint: `mode-line-process` = " closed" when toggled on.
+
+## Tests
+
++6 (total 56), tags `chaplet`:
+
+- `chaplet-test-list-bind-keys` — RET/v/s/q in chaplet-list-mode-map.
+- `chaplet-test-list-bind-question` — `?` → chaplet-transient.
+- `chaplet-test-list-bind-evil` — helper calls evil-define-key 'normal (featurep/evil-define-key stubbed).
+- `chaplet-test-graph-toggle-closed` — flips var both ways.
+- `chaplet-test-graph-refresh-closed` — `:closed t` passed when var t; nil passed when not.
+- `chaplet-test-graph-mode-map` — c/q bound.
+
+Verify: 56 tests, 56 results as expected, 0 unexpected.

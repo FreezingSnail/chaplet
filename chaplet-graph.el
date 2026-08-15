@@ -1,12 +1,17 @@
 ;;; chaplet-graph.el --- dependency DAG → SVG render -*- lexical-binding: t; -*-
 
 ;; Render the bd dependency graph as an inline SVG image (Graphviz).
-;; Falls back to raw DOT text when `dot' is unavailable.
+;; Falls back to raw DOT text when `dot' is unavailable.  `c' toggles
+;; closed beads, `q' quits.  Evil-safe: bindings live in the minor mode
+;; `chaplet-graph-mode', not the shadow-prone local map.
 
 (require 'chaplet-bd)
 
 (defvar chaplet-graph-dot-program "dot"
   "Graphviz `dot' program (name or path).  Override for tests.")
+
+(defvar-local chaplet-graph--include-closed nil
+  "Non-nil when the current graph buffer includes closed beads.")
 
 (defun chaplet-graph--dot-available-p ()
   "Return non-nil when the Graphviz `dot' program is available."
@@ -29,6 +34,8 @@
       (erase-buffer)
       (insert svg)
       (when (display-images-p) (image-mode)))
+    (chaplet-graph-mode 1)
+    (chaplet-graph--update-mode-line)
     (current-buffer)))
 
 (defun chaplet-graph--show-dot (dot)
@@ -37,18 +44,19 @@
     (let ((inhibit-read-only t))
       (erase-buffer)
       (insert dot)
-      (fundamental-mode)
-      (use-local-map (let ((m (make-sparse-keymap)))
-                       (define-key m (kbd "q") 'quit-window)
-                       m)))
+      (fundamental-mode))
+    (chaplet-graph-mode 1)
+    (chaplet-graph--update-mode-line)
     (current-buffer)))
 
-(defun chaplet-graph (&optional include-closed)
-  "Render the bd dependency DAG for the current scope.
-With prefix arg INCLUDE-CLOSED (e.g. `C-u'), include closed beads."
-  (interactive "P")
+(defun chaplet-graph--update-mode-line ()
+  "Set `mode-line-process' in the current buffer per closed inclusion."
+  (setq mode-line-process (when chaplet-graph--include-closed '(" closed"))))
+
+(defun chaplet-graph--refresh ()
+  "Re-render the graph honoring `chaplet-graph--include-closed'."
   (let ((dot (chaplet-bd-graph-dot
-              (when include-closed '((:closed . t))))))
+              (when chaplet-graph--include-closed '((:closed . t))))))
     (cond
      ((null dot) (message "chaplet: no graph data"))
      ((chaplet-graph--dot-available-p)
@@ -60,6 +68,27 @@ With prefix arg INCLUDE-CLOSED (e.g. `C-u'), include closed beads."
      (t
       (message "chaplet: dot not found; showing raw DOT")
       (pop-to-buffer (chaplet-graph--show-dot dot))))))
+
+(defun chaplet-graph-toggle-closed ()
+  "Toggle whether the graph includes closed beads, then re-render."
+  (interactive)
+  (setq chaplet-graph--include-closed (not chaplet-graph--include-closed))
+  (chaplet-graph--refresh))
+
+(define-minor-mode chaplet-graph-mode
+  "Minor mode for the `*chaplet:graph*' buffer.
+Binds `q' to quit and `c' to toggle closed beads."
+  :keymap (let ((map (make-sparse-keymap)))
+            (define-key map (kbd "q") #'quit-window)
+            (define-key map (kbd "c") #'chaplet-graph-toggle-closed)
+            map))
+
+(defun chaplet-graph (&optional include-closed)
+  "Render the bd dependency DAG for the current scope.
+With prefix arg INCLUDE-CLOSED (e.g. `C-u'), include closed beads."
+  (interactive "P")
+  (setq chaplet-graph--include-closed (when include-closed t))
+  (chaplet-graph--refresh))
 
 (provide 'chaplet-graph)
 ;;; chaplet-graph.el ends here
