@@ -56,14 +56,24 @@ when there are no entries."
                " ")))))
 
 (defun chaplet-bar--install ()
-  "Append the keybinding bar to the buffer-local `mode-line-format'.
-Idempotent: the `(:eval (chaplet-bar--render))' element is appended at
-most once per buffer."
+  "Insert the keybinding bar into the buffer-local `mode-line-format'.
+
+The `(:eval (chaplet-bar--render))' element is placed *before* the
+trailing space-filler (`mode-line-end-spaces', whose `%-' directive
+expands to fill the remaining line width).  Appending after it pushes
+the bar past the right edge where it is clipped and never displayed.
+Idempotent: at most one bar element per buffer."
   (unless chaplet-bar--installed
     (setq-local chaplet-bar--installed t)
     (when (consp mode-line-format)
-      (setq-local mode-line-format
-                  (append mode-line-format '((:eval (chaplet-bar--render))))))))
+      (let* ((bar '((:eval (chaplet-bar--render))))
+             (tail (memq 'mode-line-end-spaces mode-line-format)))
+        (setq-local mode-line-format
+                    (if tail
+                        (append (butlast mode-line-format (length tail))
+                                bar
+                                tail)
+                      (append mode-line-format bar)))))))
 
 (provide 'chaplet-bar)
 ;;; chaplet-bar.el ends here
