@@ -1,0 +1,5 @@
+#!/bin/sh
+# Fake `dot` for chaplet ERT tests. Emits a fixed SVG and exits 0.
+cat > /dev/null 2>&1
+printf '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n'
+exit 0

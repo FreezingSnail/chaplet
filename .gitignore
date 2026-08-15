@@ -4,3 +4,9 @@
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# Build artifacts
+*.elc
+
+# fake-bd runtime state (full-loop tests)
+test/.fake-bd-state

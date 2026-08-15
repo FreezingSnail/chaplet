@@ -1,0 +1,75 @@
+#!/bin/sh
+# fake-bd: minimal fake `bd` CLI for chaplet ERT tests.
+#
+# Reads (list/query/show/graph) emit canned output and exit 0.
+# Writes (create/comment/undefer/defer/update/label) exit 0.
+# Anything else exits 1.
+#
+# Invoked as: fake-bd -C <root> <subcommand> [args...]
+#
+# Stateful mode (full-loop tests): when CHAPLET_FAKE_BD_STATE is set, it is
+# a state file where undefer records `APPROVED <id>` and comment records
+# `COMMENT <id> <text>`.  `query` then filters approved ids out of the
+# inbox, so approval is observable as removal from the staged inbox.
+
+state="${CHAPLET_FAKE_BD_STATE:-}"
+
+[ "$1" = "-C" ] && shift 2
+cmd="$1"; shift
+
+approved() {
+  [ -n "$state" ] && [ -f "$state" ] && grep -q "^APPROVED $1$" "$state"
+}
+
+case "$cmd" in
+  list)
+    cat <<'EOF'
+[
+  {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"defer_until":null,"design":"","acceptance":"","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"},
+  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}
+]
+EOF
+    exit 0 ;;
+  query)
+    if approved bd-2; then
+      echo '[]'
+    else
+      cat <<'EOF'
+[
+  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}
+]
+EOF
+    fi
+    exit 0 ;;
+  show)
+    cat <<'EOF'
+[
+  {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"defer_until":null,"design":"design1","acceptance_criteria":"acc1","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}
+]
+EOF
+    exit 0 ;;
+  comments)
+    cat <<'EOF'
+[
+  {"id":"c1","issue_id":"bd-1","author":"alice","text":"nice bead","created_at":"2026-01-02T00:00:00Z"}
+]
+EOF
+    exit 0 ;;
+  graph)
+    echo 'digraph G { "bd-1" -> "bd-2"; }'
+    exit 0 ;;
+  create)
+    echo "bd-99"
+    exit 0 ;;
+  undefer)
+    [ -n "$state" ] && printf 'APPROVED %s\n' "$1" >> "$state"
+    exit 0 ;;
+  comment)
+    id="$1"; shift
+    [ -n "$state" ] && printf 'COMMENT %s %s\n' "$id" "$*" >> "$state"
+    exit 0 ;;
+  defer|update|label)
+    exit 0 ;;
+  *)
+    exit 1 ;;
+esac
