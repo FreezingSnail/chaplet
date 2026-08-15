@@ -1183,7 +1183,7 @@ call executes."
           (should (equal rendered "bd-2")))))))
 
 (ert-deftest chaplet-test-graph-text-fallback ()
-  "Render falls back to a navigable ASCII DAG without images."
+  "Render falls back to a navigable gutter-tree text without images."
   (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
     (with-temp-buffer
       (let ((f (chaplet-test--graph-fixture)))
@@ -1191,7 +1191,11 @@ call executes."
         (should chaplet-graph--text-mode)
         (should (string-match-p "▶\\[bd-1\\]" (buffer-string)))
         (should (string-match-p "missing-dep.*~" (buffer-string)))
-        (should (string-match-p "──→" (buffer-string)))
+        ;; Gutter glyphs (│ └ ┐), not column-per-layer ──→ connectors.
+        (should (string-match-p "└┐" (buffer-string)))
+        (should (string-match-p "└│" (buffer-string)))
+        (should-not (string-match-p "──" (buffer-string)))
+        (should-not (string-match-p "→" (buffer-string)))
         ;; Focus keys operate on the text outline (marker moves).
         (chaplet-graph--focus-next)
         (should (string-match-p "▶\\[bd-2\\]" (buffer-string)))))))
@@ -1206,35 +1210,153 @@ call executes."
         (chaplet-graph--render (car f) (cdr f) focus-id)
         (buffer-string)))))
 
+(defun chaplet-test--text-canvas (beads &optional focus-id)
+  "Render BEADS (bead alists) through the gutter-tree; return the string."
+  (let ((layout (chaplet-graph--layout (chaplet-graph--nodes beads))))
+    (chaplet-graph--text-canvas (car layout) (cdr layout) focus-id)))
+
+(defun chaplet-test--text-node-ids (beads &optional focus-id)
+  "Return node ids in line order from the gutter-tree render of BEADS."
+  (let ((ids nil))
+    (dolist (line (split-string (chaplet-test--text-canvas beads focus-id) "\n"))
+      (when (string-match "\\[\\([^]]+\\)\\]" line)
+        (push (match-string 1 line) ids)))
+    (nreverse ids)))
+
 (ert-deftest chaplet-test-graph-text-columns ()
-  "ASCII renderer puts each layer in its own column, roots rightmost."
-  (let ((s (chaplet-test-graph-text nil)))
-    ;; bd-3 (layer 2) leftmost, then bd-2, then the root layer rightmost.
-    (should (string-match-p "bd-3.*bd-2.*bd-1" s))
-    ;; Roots share one column: bd-1 above missing-dep.
-    (should (string-match-p "bd-1.*\n.*missing-dep" s))))
+  "Gutter-tree renderer lays out one node per line in topological order."
+  (let ((s (chaplet-test--text-canvas chaplet-test--graph-beads)))
+    ;; Deps precede their dependents, one node per line (ghost lane threaded).
+    (should (equal (chaplet-test--text-node-ids chaplet-test--graph-beads)
+                   '("bd-1" "missing-dep" "bd-2" "bd-3")))
+    ;; Gutter indentation grows with the open lanes (└│/└┐), not columns.
+    (should (string-match-p "└│" s))
+    (should (string-match-p "└┐" s))))
 
 (ert-deftest chaplet-test-graph-text-edges ()
-  "ASCII renderer draws same-row `──→' and vertical `│' connectors."
-  ;; c1 (layer 2) → a3 (layer 0, row 2) spans two rows, forcing a
-  ;; vertical trunk; c1→b1 and b1→a1 stay on one row.
-  (let ((beads '(((id . "a1") (title . "one") (status . "open")
+  "Gutter-tree renderer draws `└┐' merge buses and `│' lane continuations."
+  (let ((beads '(((id . "a") (title . "one") (status . "open")
                   (dependencies . nil))
-                 ((id . "a2") (title . "two") (status . "open")
+                 ((id . "b") (title . "two") (status . "open")
                   (dependencies . nil))
-                 ((id . "a3") (title . "three") (status . "open")
+                 ((id . "c") (title . "three") (status . "open")
+                  (dependencies . ("a" "b"))))))
+    (let ((s (chaplet-test--text-canvas beads)))
+      ;; a's lane stays open while b prints → `│' continuation.
+      (should (string-match-p "│  \\[b\\]" s))
+      ;; c merges both lanes with a `└┐' bus.
+      (should (string-match-p "└┐" s))
+      ;; No old column-per-layer `──→' connectors.
+      (should-not (string-match-p "──" s))
+      (should-not (string-match-p "→" s)))))
+
+(ert-deftest chaplet-test-graph-text-chain ()
+  "A linear chain renders as right-growing `└' steps; each node once."
+  (let ((beads '(((id . "a") (title . "Alpha") (status . "open")
                   (dependencies . nil))
-                 ((id . "b1") (title . "bee") (status . "open")
-                  (dependencies . ("a1")))
-                 ((id . "c1") (title . "see") (status . "open")
-                  (dependencies . ("b1" "a3"))))))
-    (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
-      (with-temp-buffer
-        (let* ((layout (chaplet-graph--layout (chaplet-graph--nodes beads))))
-          (chaplet-graph--render (car layout) (cdr layout) nil)
-          (let ((s (buffer-string)))
-            (should (string-match-p "──→" s))
-            (should (string-match-p "│" s))))))))
+                 ((id . "b") (title . "Beta") (status . "open")
+                  (dependencies . ("a")))
+                 ((id . "c") (title . "Gamma") (status . "open")
+                  (dependencies . ("b"))))))
+    (let ((s (chaplet-test--text-canvas beads)))
+      (should (equal (chaplet-test--text-node-ids beads) '("a" "b" "c")))
+      ;; Each dependent steps onto the `└' glyph of its parent lane.
+      (should (string-match-p "└  \\[b\\]" s))
+      (should (string-match-p "└  \\[c\\]" s))
+      ;; Linear chain: no merges or continuations.
+      (should-not (string-match-p "┐" s))
+      (should-not (string-match-p "│" s)))))
+
+(ert-deftest chaplet-test-graph-text-fork ()
+  "A fan-out opens two lanes; `│'/`└' thread the branch continuations."
+  (let ((beads '(((id . "a") (title . "Root") (status . "open")
+                  (dependencies . nil))
+                 ((id . "b") (title . "B") (status . "open")
+                  (dependencies . ("a")))
+                 ((id . "c") (title . "C") (status . "open")
+                  (dependencies . ("a")))
+                 ((id . "d") (title . "D") (status . "open")
+                  (dependencies . ("b")))
+                 ((id . "e") (title . "E") (status . "open")
+                  (dependencies . ("c"))))))
+    (let ((s (chaplet-test--text-canvas beads)))
+      (should (equal (chaplet-test--text-node-ids beads)
+                     '("a" "b" "c" "d" "e")))
+      ;; Two lanes open at once: c steps right while b's lane continues.
+      (should (string-match-p "└│" s))
+      ;; d continues c's lane (│) while stepping onto b's (└).
+      (should (string-match-p "│└" s)))))
+
+(ert-deftest chaplet-test-graph-text-diamond ()
+  "A diamond node appears once; its lane threads both dependents; D merges."
+  (let ((beads '(((id . "A") (title . "Top") (status . "open")
+                  (dependencies . nil))
+                 ((id . "B") (title . "Bmid") (status . "open")
+                  (dependencies . ("A")))
+                 ((id . "C") (title . "Cmid") (status . "open")
+                  (dependencies . ("A")))
+                 ((id . "D") (title . "Bot") (status . "open")
+                  (dependencies . ("B" "C"))))))
+    (let ((s (chaplet-test--text-canvas beads)))
+      ;; A appears once even though it has two dependents.
+      (should (equal (chaplet-test--text-node-ids beads)
+                     '("A" "B" "C" "D")))
+      ;; A's lane threads to both B (└) and C (└│ continuation).
+      (should (string-match-p "└  \\[B\\]" s))
+      (should (string-match-p "└│" s))
+      ;; D merges B and C with a └┐ bus.
+      (should (string-match-p "└┐" s)))))
+
+(ert-deftest chaplet-test-graph-text-merge-bus ()
+  "A 3-dep node draws a `└─…─┐' merge bus into itself."
+  (let ((beads '(((id . "A") (title . "One") (status . "open")
+                  (dependencies . nil))
+                 ((id . "B") (title . "Two") (status . "open")
+                  (dependencies . nil))
+                 ((id . "C") (title . "Three") (status . "open")
+                  (dependencies . nil))
+                 ((id . "D") (title . "Merge") (status . "open")
+                  (dependencies . ("A" "B" "C"))))))
+    (let ((s (chaplet-test--text-canvas beads)))
+      (should (string-match-p "└─┐" s))      ; └ leftmost, ─ span, ┐ rightmost
+      (should (string-match-p "│" s))        ; root lanes continue above
+      (should (string-match-p "││" s)))))    ; two lanes open for C
+
+(ert-deftest chaplet-test-graph-text-width ()
+  "Gutter-tree width is bounded by open lanes + box width, not DAG depth."
+  (let* ((beads '(((id . "A") (title . "One") (status . "open")
+                   (dependencies . nil))
+                  ((id . "B") (title . "Two") (status . "open")
+                   (dependencies . nil))
+                  ((id . "C") (title . "Three") (status . "open")
+                   (dependencies . nil))
+                  ((id . "D") (title . "Merge") (status . "open")
+                   (dependencies . ("A" "B" "C")))))
+         (nodes (chaplet-graph--nodes beads))
+         (box-width (apply #'max
+                           (mapcar (lambda (n) (string-width
+                                                (chaplet-graph--text-node-line n nil)))
+                                   nodes)))
+         (max-lanes 3)                  ; A, B, C all open before D merges
+         (s (chaplet-test--text-canvas beads))
+         (widths (mapcar #'string-width (split-string s "\n"))))
+    (dolist (w widths)
+      (should (<= w (+ max-lanes 1 box-width))))
+    ;; Far narrower than the old depth-proportional layout (< 80 cols).
+    (should (< (apply #'max widths) 80))))
+
+(ert-deftest chaplet-test-graph-text-truncation-e2e ()
+  "Titles over the default 20-col title-max truncate with `…' end-to-end."
+  (should (= chaplet-graph--text-title-max 20))
+  (let* ((long (make-string 40 ?x))
+         (beads (list (list (cons 'id "bd-9") (cons 'title long)
+                            (cons 'status "open") (cons 'issue_type "task")
+                            (cons 'dependencies nil))))
+         (s (chaplet-test--text-canvas beads)))
+    (should (string-match-p "…" s))
+    ;; Truncated to 19 x's + ellipsis (fits the 20-column budget).
+    (should (string-match-p (concat (make-string 19 ?x) "…") s))
+    (should-not (string-match-p (make-string 20 ?x) s))))
 
 (ert-deftest chaplet-test-graph-text-focus ()
   "ASCII renderer marks the focused node with a ▶ prefix."

@@ -2,13 +2,16 @@
 
 ;; Render the bd dependency graph as an inline SVG image with clickable
 ;; nodes and keyboard focus navigation (design §4.4).  Falls back to a
-;; navigable text outline when images are unavailable (no display, or
-;; `svg-image' returns nil — e.g. librsvg absent).
+;; navigable gutter-tree text render (in the style of `git log --graph')
+;; when images are unavailable (no display, or `svg-image' returns nil —
+;; e.g. librsvg absent).
 ;;
 ;; Pure pipeline: `chaplet-graph--nodes' → bead alists to node plists,
 ;; `chaplet-graph--layout' → layered top-down DAG (xywh + edges),
 ;; `chaplet-graph--svg' → svg.el DOM object, `chaplet-graph--image-map'
-;; → clickable `:map' regions.  Zero external deps.
+;; → clickable `:map' regions.  The text leaf is `chaplet-graph--text-
+;; canvas' → a gutter-tree string: one node per line, width proportional
+;; to concurrent lanes (not DAG depth).  Zero external deps.
 ;;
 ;; Buffer/navigation: `chaplet-graph' (entry), `chaplet-graph-mode'
 ;; major mode (derived from `special-mode') binds n/p (focus next/prev),
@@ -92,13 +95,10 @@ KEY-STRING entries are checked against `chaplet-graph-mode-map'.")
     ("mouse-2" . "dependents"))
   "Static reference entries for the per-node mouse hot-spots.")
 
-(defcustom chaplet-graph--text-title-max 24
-  "Maximum title width (columns) before truncation in the ASCII renderer."
+(defcustom chaplet-graph--text-title-max 20
+  "Maximum title width (columns) before truncation in the gutter-tree renderer."
   :type 'integer
   :group 'chaplet-graph)
-
-(defconst chaplet-graph--text-gap 4
-  "Horizontal gap (columns) between node columns in the ASCII renderer.")
 
 (defun chaplet-graph--image-available-p ()
   "Return non-nil when inline SVG images can be displayed in this session."
@@ -177,124 +177,104 @@ Ghost nodes append a `~' marker."
          (ghost-str (if (plist-get node :ghost) " ~" "")))
     (concat prefix "[" id-str "] " title state-str ghost-str)))
 
-(defconst chaplet-graph--text-line-chars
-  '(?─ ?│ ?┌ ?┐ ?└ ?┘ ?┼ ?→)
-  "Connector characters used by the ASCII edge painter.")
+(defun chaplet-graph--text-order (nodes)
+  "Return NODES in topological order (layer asc, id asc).
+Dependencies always precede their dependents.  Flattens
+`chaplet-graph--rows' (built from `chaplet-graph--layers')."
+  (let ((layers (chaplet-graph--layers nodes)))
+    (apply #'append (mapcar #'cdr (chaplet-graph--rows nodes layers)))))
 
-(defun chaplet-graph--text-put (canvas x y ch)
-  "Set 1-char string CH at (X . Y) in CANVAS (vector of char-string vectors).
-Crossing connector characters merge into ┼; arrows win over other chars.
-Text properties carried by CH are preserved."
-  (when (and (>= y 0) (< y (length canvas)))
-    (let ((row (aref canvas y)))
-      (when (and (>= x 0) (< x (length row)))
-        (let ((old (aref row x)))
-          (aset row x
-                (cond ((= (aref old 0) ? ) ch)
-                      ((= (aref ch 0) ?→) ch)
-                      ((and (memq (aref old 0) chaplet-graph--text-line-chars)
-                            (memq (aref ch 0) chaplet-graph--text-line-chars))
-                       "┼")
-                      (t ch))))))))
+(defun chaplet-graph--text-dependents (edges order)
+  "Return hash table id → dependent ids, from EDGES (FROM . TO).
+FROM depends on TO, so FROM is pushed onto TO's dependent list.
+ORDER is the topological node order; used to seed an entry for every
+id so lookups always succeed."
+  (let ((table (make-hash-table :test 'equal)))
+    (dolist (n order)
+      (puthash (plist-get n :id) nil table))
+    (dolist (e edges)
+      (push (car e) (gethash (cdr e) table)))
+    table))
 
-(defun chaplet-graph--text-draw-edge (canvas from-end from-row to-start to-row)
-  "Draw an edge on CANVAS from box end (FROM-END . FROM-ROW) to box
-start (TO-START . TO-ROW).  Same row: `──→'.  Different rows: a vertical
-`│' plus a horizontal run with the arrow into the target box."
-  (let ((trunk (1+ from-end)))
-    (if (= from-row to-row)
-        (progn
-          (dotimes (i (- to-start trunk 1))
-            (chaplet-graph--text-put canvas (+ trunk i) from-row "─"))
-          (chaplet-graph--text-put canvas (1- to-start) from-row "→"))
-      (if (< from-row to-row)
-          (progn
-            (chaplet-graph--text-put canvas trunk from-row "┐")
-            (dotimes (i (- to-row from-row 1))
-              (chaplet-graph--text-put canvas trunk (+ from-row 1 i) "│"))
-            (chaplet-graph--text-put canvas trunk to-row "└")
-            (dotimes (i (- to-start trunk 2))
-              (chaplet-graph--text-put canvas (+ trunk 1 i) to-row "─"))
-            (chaplet-graph--text-put canvas (1- to-start) to-row "→"))
-        (progn
-          (chaplet-graph--text-put canvas trunk from-row "┘")
-          (dotimes (i (- from-row to-row 1))
-            (chaplet-graph--text-put canvas trunk (+ to-row 1 i) "│"))
-          (chaplet-graph--text-put canvas trunk to-row "┌")
-          (dotimes (i (- to-start trunk 2))
-            (chaplet-graph--text-put canvas (+ trunk 1 i) to-row "─"))
-          (chaplet-graph--text-put canvas (1- to-start) to-row "→"))))))
+(defun chaplet-graph--text-gutter (nodes edges focus-id)
+  "Return the gutter-tree ASCII diagram for NODES/EDGES (design §4.4).
+One node per line; a left gutter of `│ └ ┐ ─' threads the dependency
+lanes.  A node with deps draws a merge bus `└─…─┐' into itself; a lane
+stays open until its last dependent prints, so a diamond node appears
+once.  Width is proportional to concurrently open lanes, not DAG depth.
+FOCUS-ID nodes get the ▶ prefix via `chaplet-graph--text-node-line'."
+  (let* ((order (chaplet-graph--text-order nodes))
+         (dependents (chaplet-graph--text-dependents edges order))
+         (open-count (make-hash-table :test 'equal))
+         (cols (make-vector 0 nil))
+         (lines nil))
+    ;; Remaining unprinted dependents per id (init = child count).
+    (dolist (n order)
+      (puthash (plist-get n :id)
+               (length (gethash (plist-get n :id) dependents))
+               open-count))
+    (dolist (n order)
+      (let* ((id (plist-get n :id))
+             (deps (plist-get n :deps))
+             (ncol (length cols))
+             (dep-pos (cl-remove-if-not
+                       (lambda (i) (member (aref cols i) deps))
+                       (number-sequence 0 (1- ncol))))
+             (p0 (car dep-pos))
+             (pk (car (last dep-pos)))
+             (gutter ""))
+        ;; Gutter: one glyph per lane slot (hole → space).
+        (dotimes (i ncol)
+          (let ((slot (aref cols i)))
+            (setq gutter
+                  (concat gutter
+                          (cond ((null slot) " ")
+                                ((or (null deps) (null p0)) "│")
+                                ((< i p0) "│")
+                                ((= i p0) "└")
+                                ((< i pk) "─")
+                                ((= i pk) "┐")
+                                (t "│"))))))
+        (push (concat gutter " " (chaplet-graph--text-node-line n focus-id))
+              lines)
+        ;; Close dep lanes whose last dependent is N.
+        (dolist (dep deps)
+          (let ((c (gethash dep open-count 0)))
+            (when (> c 0)
+              (puthash dep (1- c) open-count)
+              (when (zerop (1- c))
+                (let ((pos (cl-position dep cols :test #'equal)))
+                  (when pos (aset cols pos nil)))))))
+        ;; Place N: take the leftmost dep lane if it just closed, else a
+        ;; fresh lane.  A leaf (no dependents) needs no lane.
+        (when (> (length (gethash id dependents)) 0)
+          (let ((slot (cond ((and p0 (null (aref cols p0))) p0)
+                            ((cl-position nil cols))
+                            (t (prog1 ncol
+                                 (setq cols (vconcat cols (vector nil))))))))
+            (aset cols slot id)))
+        ;; Compaction: drop trailing nil slots.
+        (let ((end (length cols)))
+          (while (and (> end 0) (null (aref cols (1- end))))
+            (setq end (1- end)))
+          (setq cols (substring cols 0 end)))))
+    (mapconcat #'identity (nreverse lines) "\n")))
 
 (defun chaplet-graph--text-canvas (nodes edges focus-id)
-  "Build the ASCII box-drawing DAG text for NODES/EDGES (pure).
-Each layer becomes a column; the root layer (0) sits rightmost.  Returns
-a string with trailing whitespace trimmed from each line."
+  "Build the gutter-tree ASCII text for NODES/EDGES (pure).
+One node per line with a left gutter of `│ └ ┐ ─' threading dependency
+lanes (design §4.4).  Returns a string with trailing whitespace trimmed
+from each line, or \"\" when NODES is empty."
   (if (null nodes)
       ""
-    (let* ((layers (chaplet-graph--layers nodes))
-           (rows (chaplet-graph--rows nodes layers))
-           (max-layer (caar (last rows)))
-           (ncol (1+ max-layer))
-           (line-by-id (make-hash-table :test 'equal))
-           (pos (make-hash-table :test 'equal))
-           (col-width (make-vector ncol 0))
-           (height 0))
-      (dolist (row rows)
-        (let ((ns (cdr row))
-              (c (- max-layer (car row))))
-          (aset col-width c
-                (seq-max (mapcar (lambda (n)
-                                   (let ((l (chaplet-graph--text-node-line
-                                             n focus-id)))
-                                     (puthash (plist-get n :id) l line-by-id)
-                                     (string-width l)))
-                                 ns)))
-          (setq height (max height (length ns)))
-          (dotimes (r (length ns))
-            (puthash (plist-get (nth r ns) :id) (cons c r) pos))))
-      (let ((x 1) xs)
-        (dotimes (c ncol)
-          (push x xs)
-          (setq x (+ x (aref col-width c) chaplet-graph--text-gap)))
-        (setq xs (nreverse xs))
-        (let ((canvas (make-vector height nil))
-              (width (1+ x)))
-          (dotimes (r height)
-            (aset canvas r (make-vector width " ")))
-          (dolist (n nodes)
-            (let* ((p (gethash (plist-get n :id) pos))
-                   (cx (nth (car p) xs))
-                   (line (gethash (plist-get n :id) line-by-id)))
-              (dotimes (i (length line))
-                (chaplet-graph--text-put canvas (+ cx i) (cdr p)
-                                         (substring line i (1+ i))))))
-          (dolist (e edges)
-            (let* ((pf (gethash (car e) pos))
-                   (pt (gethash (cdr e) pos)))
-              (when (and pf pt)
-                (let ((fx (nth (car pf) xs)))
-                  (chaplet-graph--text-draw-edge
-                   canvas (+ fx (string-width
-                                 (gethash (car e) line-by-id))
-                                -1)
-                   (cdr pf)
-                   (nth (car pt) xs)
-                   (cdr pt))))))
-          (mapconcat (lambda (row)
-                       (let ((s (mapconcat #'identity row "")))
-                         (if (string-match "[ \t]+\\'" s)
-                             (substring s 0 (match-beginning 0))
-                           s)))
-                     (append canvas nil)
-                     "\n"))))))
+    (chaplet-graph--text-gutter nodes edges focus-id)))
 
 (defun chaplet-graph--text-render (nodes edges focus-id)
-  "Render NODES/EDGES as a box-drawing ASCII DAG in the current buffer.
-Each layer is a column (root layer rightmost); every node is a box
-`[id] title' plus state tag.  The focused node gets a ▶ prefix and ghost
-nodes a `~' marker.  Edges are drawn with `──→' between boxes on the
-same row and `│' plus a horizontal run between rows.  Faces come from
-`chaplet-face' (id/state/staged).  Same keys as the image render
+  "Render NODES/EDGES as a gutter-tree ASCII diagram in the current buffer.
+One node per line, each box `[id] title' plus state tag, with a left
+gutter of `│ └ ┐ ─' threading the dependency lanes (design §4.4).  The
+focused node gets a ▶ prefix and ghost nodes a `~' marker.  Faces come
+from `chaplet-face' (id/state/staged).  Same keys as the image render
 (n/p/RET/d/f/g/c/q) operate through `chaplet-graph--focus-id'."
   (let ((inhibit-read-only t))
     (erase-buffer)
