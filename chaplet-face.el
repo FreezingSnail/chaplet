@@ -88,6 +88,11 @@
   "Face for the staged marker in the list."
   :group 'chaplet)
 
+(defface chaplet-bar
+  '((t :inherit mode-line :weight bold))
+  "Face for the keybinding reference bar (mode-line footer)."
+  :group 'chaplet)
+
 (defface chaplet-id
   '((t :inherit fixed-pitch))
   "Face for bead ids."

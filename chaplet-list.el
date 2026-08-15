@@ -8,6 +8,7 @@
 (require 'chaplet-graph)
 (require 'tabulated-list)
 (require 'chaplet-face)
+(require 'chaplet-bar)
 (require 'cl-lib)
 
 ;;; Views
@@ -106,6 +107,17 @@ Counts are derived from the current `tabulated-list-entries' (state = col 3)."
                       :key (lambda (r) (substring-no-properties (aref r 2)))
                       :test #'string=))))
 
+(defvar chaplet-list--bar-specs
+  '(("v" . "view switch")
+    ("s" . "graph")
+    ("?" . "actions")
+    ("RET" . "open")
+    ("q" . "quit")
+    ("mouse-1" . "open"))
+  "Keybinding reference entries for the list buffer bar.
+KEY-STRING entries are checked against `chaplet-list-mode-map' before
+being listed, so the bar mirrors the real bindings.")
+
 (defun chaplet-list--buffer-name (view)
   "Return the buffer name for VIEW."
   (format "*chaplet:%s*" view))
@@ -171,6 +183,10 @@ Both filters are composed into the view's bd query (server-side)."
   (hl-line-mode 1)
   (setq mode-line-process '(:eval (chaplet-list--modeline)))
   (face-remap-add-relative 'header-line '(chaplet-header header-line))
+  (setq-local chaplet-bar--map chaplet-list-mode-map)
+  (setq-local chaplet-bar--specs chaplet-list--bar-specs)
+  (setq-local chaplet-bar--extra nil)
+  (chaplet-bar--install)
   (chaplet-list-refresh))
 
 (defun chaplet-list--bind (key cmd)

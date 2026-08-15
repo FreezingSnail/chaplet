@@ -249,3 +249,51 @@ emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "cha
 ```
 
 **Ran 91 tests, 91 results as expected, 0 unexpected** (10 face + 3 graph-data + 8 list restyle + 12 layout/SVG + 8 nav + 50 regression/integration).
+
+# chaplet-uvy.8 — Bottom keybinding bar in list + graph buffers
+
+## Interfaces implemented (new module chaplet-bar.el)
+
+| Symbol | Kind | Contract |
+|---|---|---|
+| `(chaplet-bar--install)` | fn → void | Append one `(:eval (chaplet-bar--render))` element to buffer-local `mode-line-format`. Idempotent: `chaplet-bar--installed` guard, at most once per buffer. |
+| `(chaplet-bar--render)` | fn → string | Mode-line bar string for current buffer. Entries `"[KEY] LABEL"`, face `chaplet-bar`, joined `" "`, `""` when none. Reads buffer-locals `chaplet-bar--map`/`--specs`/`--extra`. |
+| `(chaplet-bar--entries)` / `(--bound)` | fns | `--bound`: specs whose key (`kbd`-parsed) is bound in `chaplet-bar--map` via `lookup-key` (unbound keys omitted — bar always mirrors real keymap). `--entries`: bound specs + `--extra` static entries. |
+| Buffer-locals | vars | `chaplet-bar--map` (keymap), `--specs` (alist KEY-STRING . LABEL), `--extra` (static, e.g. per-node mouse), `--installed` (guard). |
+
+Depends: `chaplet-face` (face only). Built-in `kbd`/`lookup-key` — zero external deps.
+
+Face: `chaplet-bar` defface in chaplet-face.el (`:inherit mode-line :weight bold`, group `chaplet`).
+
+## Buffer integration
+
+- `chaplet-list.el`: `(require 'chaplet-bar)`; defvar `chaplet-list--bar-specs`; mode body sets `chaplet-bar--map` → `chaplet-list-mode-map` + specs + install.
+- `chaplet-graph.el`: `(require 'chaplet-bar)`; defvars `chaplet-graph--bar-specs` (keyboard) + `chaplet-graph--bar-extra` (mouse); `chaplet-graph--render` sets buffer-locals + installs (survives image-mode + repeated re-renders).
+- `chaplet.el`: require chain `chaplet-face` → `chaplet-bar` → `chaplet-bd` → `chaplet-list` …
+
+## Key list (derived from real keymaps)
+
+- **Main (chaplet-list-mode-map)**: `v` view switch · `s` graph · `?` actions · `RET` open · `q` quit · `mouse-1` open.
+- **Graph (chaplet-graph-mode-map)**: `n` next · `p` prev · `RET` open focused · `d` dependents · `f` deps · `g` refresh · `c` toggle closed · `q` quit · `mouse-1` open node · `mouse-2` dependents.
+
+## Deviations from task key list
+
+- Main `s` is **graph**, not "status toggle" (actual binding `chaplet-list--bind (kbd "s") #'chaplet-graph`).
+- Main `c` **closed toggle is not bound** in chaplet-list-mode-map — omitted from the bar (task explicitly allowed adjusting to real bindings). Closed view reachable via `v` → view switch.
+- Main bar additionally lists `?` (actions → `chaplet-transient`, bound at chaplet-transient.el:165) and `RET` (open) — both live bindings.
+- Graph mouse entries are static extras (per-node hot-spots are `[ID mouse-1]`/`[ID mouse-2]`, not plain keys — not keymap-queryable).
+
+## Tests (chaplet-test.el, ERT)
+
+Added 6 `chaplet-test-bar-*`: `list-installed` (mode-line element + rendered keys), `graph-installed` (same after `--render`), `list-keys-match-keymap` (every listed key bound in list map; asserts `c` absent, `s` present), `graph-keys-match-keymap` (keyboard keys bound; mouse via installed `[ID mouse-1]` node binding), `unrelated-buffer` (no bar element/flag, render `""`), `idempotent` (double install → exactly 1 element). `chaplet-test-face-deffaces` updated to include `chaplet-bar`.
+
+## Verification
+
+```
+emacs -Q --batch -L . -f batch-byte-compile chaplet-bar.el chaplet-face.el \
+  chaplet-list.el chaplet-graph.el chaplet.el chaplet-test.el   # exit 0, no new warnings
+emacs -Q --batch -L . -l chaplet-test --eval '(ert-run-tests-batch-and-exit "chaplet-test-")'
+```
+
+Result: **Ran 97 tests, 97 results as expected, 0 unexpected** (6 new + 91 regression). Byte-compile: exit 0, 0 new warnings (only pre-existing chaplet.el `chaplet-mode` defcustom-group warning).
+

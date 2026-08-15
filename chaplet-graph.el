@@ -20,6 +20,7 @@
 (require 'chaplet-bd)
 (require 'svg)
 (require 'chaplet-face)
+(require 'chaplet-bar)
 (require 'cl-lib)
 (require 'image)
 
@@ -56,6 +57,23 @@
 (defvar chaplet-graph--node-bindings nil
   "Image-map event keys currently installed in `chaplet-graph-mode-map'.
 Each element is a key vector `[ID mouse-1]' or `[ID mouse-2]'.")
+
+(defvar chaplet-graph--bar-specs
+  '(("n" . "next")
+    ("p" . "prev")
+    ("RET" . "open focused")
+    ("d" . "dependents")
+    ("f" . "deps")
+    ("g" . "refresh")
+    ("c" . "toggle closed")
+    ("q" . "quit"))
+  "Keybinding reference entries for the graph buffer bar (keyboard).
+KEY-STRING entries are checked against `chaplet-graph-mode-map'.")
+
+(defvar chaplet-graph--bar-extra
+  '(("mouse-1" . "open node")
+    ("mouse-2" . "dependents"))
+  "Static reference entries for the per-node mouse hot-spots.")
 
 (defun chaplet-graph--image-available-p ()
   "Return non-nil when inline SVG images can be displayed in this session."
@@ -145,6 +163,10 @@ Returns the current buffer."
       (chaplet-graph--text-render nodes edges focus-id))
     (chaplet-graph-mode 1)
     (chaplet-graph--update-mode-line)
+    (setq-local chaplet-bar--map chaplet-graph-mode-map)
+    (setq-local chaplet-bar--specs chaplet-graph--bar-specs)
+    (setq-local chaplet-bar--extra chaplet-graph--bar-extra)
+    (chaplet-bar--install)
     (current-buffer)))
 
 (defun chaplet-graph--update-mode-line ()

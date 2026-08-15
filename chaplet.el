@@ -5,6 +5,7 @@
 ;; `chaplet-mode', and its keymap (`C-c b b' → chaplet, `C-c b s' → graph).
 
 (require 'chaplet-face)
+(require 'chaplet-bar)
 (require 'chaplet-bd)
 (require 'chaplet-list)
 (require 'chaplet-transient)

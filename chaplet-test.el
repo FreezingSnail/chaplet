@@ -4,6 +4,7 @@
 (require 'cl-lib)
 (require 'chaplet-bd)
 (require 'chaplet-face)
+(require 'chaplet-bar)
 (require 'chaplet-detail)
 (require 'chaplet-list)
 (require 'chaplet-graph)
@@ -856,7 +857,7 @@ call executes."
                   chaplet-priority-high chaplet-priority-medium
                   chaplet-priority-low
                   chaplet-type-epic chaplet-type-task chaplet-type-bug
-                  chaplet-header chaplet-staged chaplet-id))
+                  chaplet-header chaplet-staged chaplet-id chaplet-bar))
     (should (facep face))))
 
 ;;; chaplet-graph pure layout + SVG pipeline tests (design §7.4)
@@ -1169,6 +1170,85 @@ call executes."
   (cl-letf (((symbol-function 'this-command-keys-vector)
              (lambda () [mouse-1])))
     (should-not (chaplet-graph--clicked-id))))
+
+;;; chaplet-bar tests (uvy.8)
+
+(defun chaplet-test-bar--keys (s)
+  "Return the key strings inside \"[KEY]\" segments of rendered bar S."
+  (let ((pos 0) keys)
+    (while (string-match "\\[[^]]+\\]" s pos)
+      (push (substring s (1+ (match-beginning 0)) (1- (match-end 0))) keys)
+      (setq pos (match-end 0)))
+    (nreverse keys)))
+
+(ert-deftest chaplet-test-bar-list-installed ()
+  "The main list buffer's mode line carries the keybinding bar."
+  (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))
+    (with-temp-buffer
+      (chaplet-list-mode)
+      (should (member '(:eval (chaplet-bar--render)) mode-line-format))
+      (should chaplet-bar--installed)
+      (let ((s (chaplet-bar--render)))
+        (should (string-match-p "\\[v\\]" s))
+        (should (string-match-p "\\[s\\]" s))
+        (should (string-match-p "\\[q\\]" s))
+        (should (string-match-p "\\[mouse-1\\]" s))))))
+
+(ert-deftest chaplet-test-bar-graph-installed ()
+  "The graph buffer's mode line carries the keybinding bar."
+  (with-temp-buffer
+    (let ((f (chaplet-test--graph-fixture)))
+      (chaplet-graph--render (car f) (cdr f) nil))
+    (should (member '(:eval (chaplet-bar--render)) mode-line-format))
+    (let ((s (chaplet-bar--render)))
+      (should (string-match-p "\\[n\\]" s))
+      (should (string-match-p "\\[p\\]" s))
+      (should (string-match-p "\\[RET\\]" s))
+      (should (string-match-p "\\[mouse-1\\]" s))
+      (should (string-match-p "\\[mouse-2\\]" s)))))
+
+(ert-deftest chaplet-test-bar-list-keys-match-keymap ()
+  "Every key listed in the main bar is bound in `chaplet-list-mode-map'.
+`c' (closed toggle) is deliberately absent — the list keymap does not
+bind it; `s' reflects the real binding (graph)."
+  (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))
+    (with-temp-buffer
+      (chaplet-list-mode)
+      (let ((keys (chaplet-test-bar--keys (chaplet-bar--render))))
+        (dolist (k keys)
+          (should (lookup-key chaplet-list-mode-map (kbd k))))
+        (should-not (member "c" keys))
+        (should (member "s" keys))))))
+
+(ert-deftest chaplet-test-bar-graph-keys-match-keymap ()
+  "Keyboard keys listed in the graph bar are bound in the graph keymap.
+Mouse entries reflect the per-node hot-spot bindings installed on render."
+  (with-temp-buffer
+    (let ((f (chaplet-test--graph-fixture)))
+      (chaplet-graph--render (car f) (cdr f) nil))
+    (let ((keys (chaplet-test-bar--keys (chaplet-bar--render))))
+      (dolist (k (cl-remove-if (lambda (k) (member k '("mouse-1" "mouse-2")))
+                               keys))
+        (should (lookup-key chaplet-graph-mode-map (kbd k))))
+      (should (member "mouse-1" keys))
+      (should (member "mouse-2" keys))
+      (should (eq (lookup-key chaplet-graph-mode-map [bd-1 mouse-1])
+                  'chaplet-graph--open-node)))))
+
+(ert-deftest chaplet-test-bar-unrelated-buffer ()
+  "Buffers that never install the bar have no bar mode-line element."
+  (with-temp-buffer
+    (should-not (member '(:eval (chaplet-bar--render)) mode-line-format))
+    (should-not (bound-and-true-p chaplet-bar--installed))
+    (should (string= (chaplet-bar--render) ""))))
+
+(ert-deftest chaplet-test-bar-idempotent ()
+  "Installing the bar twice appends a single mode-line element."
+  (with-temp-buffer
+    (chaplet-bar--install)
+    (chaplet-bar--install)
+    (should (= 1 (cl-count '(:eval (chaplet-bar--render)) mode-line-format
+                           :test #'equal)))))
 
 (provide 'chaplet-test)
 ;;; chaplet-test.el ends here
