@@ -692,7 +692,7 @@ call executes."
   (let (called)
     (cl-letf (((symbol-function 'featurep)
                (lambda (f) (eq f 'evil)))
-              ((symbol-function 'evil-define-key)
+              ((symbol-function 'evil-define-key*)
                (lambda (state map key cmd)
                  (setq called (list state map key cmd)))))
       (chaplet-list--bind (kbd "x") #'ignore))

@@ -192,8 +192,12 @@ Both filters are composed into the view's bd query (server-side)."
 (defun chaplet-list--bind (key cmd)
   "Bind KEY to CMD in `chaplet-list-mode-map', evil-normal aware."
   (define-key chaplet-list-mode-map key cmd)
-  (when (and (featurep 'evil) (fboundp 'evil-define-key))
-    (evil-define-key 'normal chaplet-list-mode-map key cmd)))
+  ;; NOTE: use the evil-define-key* *function* (not the evil-define-key
+  ;; macro) so this file byte-compiles safely when evil isn't loaded.
+  ;; `fboundp' is true for macros, which would otherwise compile to a
+  ;; function call and signal `invalid-function' at runtime.
+  (when (and (featurep 'evil) (fboundp 'evil-define-key*))
+    (evil-define-key* 'normal chaplet-list-mode-map key cmd)))
 
 (chaplet-list--bind (kbd "RET") #'chaplet-list-open)
 (chaplet-list--bind (kbd "v") #'chaplet-list-set-view)
