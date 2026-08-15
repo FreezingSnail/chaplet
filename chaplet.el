@@ -32,7 +32,8 @@
 (define-minor-mode chaplet-mode
   "Global minor mode for the chaplet bead browser."
   :global t
-  :keymap chaplet-mode-map)
+  :keymap chaplet-mode-map
+  :group 'chaplet)
 
 (provide 'chaplet)
 ;;; chaplet.el ends here

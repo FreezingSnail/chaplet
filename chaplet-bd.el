@@ -56,7 +56,8 @@ Handles `[]', `null', and a single bare object."
 (defun chaplet-bd--normalize (parsed)
   "Normalize PARSED (JSON object alist) into a flat bead alist.
 Keys are symbols from `chaplet-bd--fields'; missing fields default to nil.
-Real bd reports acceptance criteria as `acceptance_criteria'."
+Real bd reports acceptance criteria as `acceptance_criteria', and
+dependencies as objects (see `chaplet-bd--normalize-deps')."
   (let (bead)
     (dolist (f chaplet-bd--fields bead)
       (push (cons f (alist-get f parsed)) bead))
@@ -64,7 +65,21 @@ Real bd reports acceptance criteria as `acceptance_criteria'."
     (when (and (null (alist-get 'acceptance bead))
                (alist-get 'acceptance_criteria parsed))
       (setf (alist-get 'acceptance bead) (alist-get 'acceptance_criteria parsed)))
+    (setf (alist-get 'dependencies bead)
+          (chaplet-bd--normalize-deps (alist-get 'dependencies bead)))
     bead))
+
+(defun chaplet-bd--normalize-deps (deps)
+  "Normalize DEPS into a list of id strings.
+Real bd reports each dependency as an object
+`((issue_id . ID) (depends_on_id . DEP) (type . ...) ...)';
+the bead depends on DEP.  Older/simpler sources report plain id strings,
+which pass through unchanged."
+  (mapcar (lambda (d)
+            (if (consp d)
+                (alist-get 'depends_on_id d)
+              d))
+          deps))
 
 ;;; Filters -> CLI args
 

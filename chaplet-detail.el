@@ -6,6 +6,8 @@
 
 (require 'chaplet-bd)
 
+(declare-function markdown-mode "markdown-mode" ())
+
 (defvar-local chaplet-detail--id nil
   "Bead id shown by the current detail buffer.")
 

@@ -11,11 +11,12 @@
 ;; → clickable `:map' regions.  Zero external deps.
 ;;
 ;; Buffer/navigation: `chaplet-graph' (entry), `chaplet-graph-mode'
-;; minor mode binds n/p (focus next/prev), RET (open focused in
-;; `chaplet-detail'), d/f (jump dependents/deps), g (refresh), c (toggle
-;; closed), q (quit).  Node hot-spots bind `[ID mouse-1]' (open) and
-;; `[ID mouse-2]' (dependents).  Evil-safe: bindings live in the minor
-;; mode `chaplet-graph-mode', not the shadow-prone local map.
+;; major mode (derived from `special-mode') binds n/p (focus next/prev),
+;; RET (open focused in `chaplet-detail'), d/f (jump dependents/deps),
+;; g (refresh), c (toggle closed), q (quit).  Node hot-spots bind
+;; `[ID mouse-1]' (open) and `[ID mouse-2]' (dependents).  Bindings
+;; live in the major mode `chaplet-graph-mode' keymap via the
+;; evil-aware `chaplet-graph--bind' (plain + evil normal/motion).
 
 (require 'chaplet-bd)
 (require 'svg)
@@ -36,21 +37,37 @@
   "Id of the focused node in the current graph buffer.")
 (defvar-local chaplet-graph--text-mode nil
   "Non-nil when the current graph buffer shows the text fallback.")
-(defvar-local chaplet-graph--include-closed nil
-  "Non-nil when the current graph buffer includes closed beads.")
+(defvar-local chaplet-graph--include-closed t
+  "Non-nil when the current graph buffer includes closed beads (default).")
 
 (defvar chaplet-graph-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "n") #'chaplet-graph--focus-next)
-    (define-key map (kbd "p") #'chaplet-graph--focus-prev)
-    (define-key map (kbd "RET") #'chaplet-graph--open-focused)
-    (define-key map (kbd "d") #'chaplet-graph--jump-dependents)
-    (define-key map (kbd "f") #'chaplet-graph--jump-deps)
-    (define-key map (kbd "g") #'chaplet-graph--refresh)
-    (define-key map (kbd "c") #'chaplet-graph-toggle-closed)
-    (define-key map (kbd "q") #'quit-window)
-    map)
-  "Keymap for `chaplet-graph-mode'.")
+  (make-sparse-keymap)
+  "Keymap for `chaplet-graph-mode'.
+Parent set to `special-mode-map' by `define-derived-mode'.")
+
+(defun chaplet-graph--bind (key cmd)
+  "Bind KEY to CMD in `chaplet-graph-mode-map', evil-aware.
+Mirrors `chaplet-list--bind': also binds in evil normal and motion
+states so the graph keys work when evil is active instead of leaking
+to evil bindings (e.g. `v' → visual mode).  Uses the evil-define-key*
+*function* (not the evil-define-key macro) so this file byte-compiles
+safely when evil isn't loaded."
+  (define-key chaplet-graph-mode-map key cmd)
+  (when (and (featurep 'evil) (fboundp 'evil-define-key*))
+    (evil-define-key* 'normal chaplet-graph-mode-map key cmd)
+    (evil-define-key* 'motion chaplet-graph-mode-map key cmd)))
+
+(chaplet-graph--bind (kbd "n") #'chaplet-graph--focus-next)
+(chaplet-graph--bind (kbd "p") #'chaplet-graph--focus-prev)
+(chaplet-graph--bind (kbd "RET") #'chaplet-graph--open-focused)
+(chaplet-graph--bind (kbd "d") #'chaplet-graph--jump-dependents)
+(chaplet-graph--bind (kbd "f") #'chaplet-graph--jump-deps)
+(chaplet-graph--bind (kbd "g") #'chaplet-graph--refresh)
+(chaplet-graph--bind (kbd "c") #'chaplet-graph-toggle-closed)
+(chaplet-graph--bind (kbd "q") #'quit-window)
+;; No `v' action in the graph viewer: suppress it under evil so the
+;; default evil `v' (visual mode) doesn't leak into this read-only buffer.
+(chaplet-graph--bind (kbd "v") #'undefined)
 
 (declare-function chaplet-detail "chaplet-detail" (id))
 
@@ -302,11 +319,8 @@ Returns the current buffer."
     (setq-local chaplet-graph--focus-id focus-id)
     (setq-local chaplet-graph--text-mode (null image))
     (if image
-        (progn
-          (insert-image image)
-          (image-mode 1))
+        (insert-image image)
       (chaplet-graph--text-render nodes edges focus-id))
-    (chaplet-graph-mode 1)
     (chaplet-graph--update-mode-line)
     (setq-local chaplet-bar--map chaplet-graph-mode-map)
     (setq-local chaplet-bar--specs chaplet-graph--bar-specs)
@@ -318,7 +332,7 @@ Returns the current buffer."
   "Set `mode-line-process' in the current graph buffer."
   (setq mode-line-process
         (format " %s%s" (if chaplet-graph--text-mode "text" "svg")
-                (if chaplet-graph--include-closed " closed" ""))))
+                (if chaplet-graph--include-closed " all" " open"))))
 
 (defun chaplet-graph--refresh ()
   "Re-fetch, re-layout and re-render the graph in the current buffer.
@@ -404,19 +418,21 @@ Preserves `chaplet-graph--focus-id' when the focused node still exists."
       (message "chaplet: no deps%s"
                (if id "" " (no focus)")))))
 
-(define-minor-mode chaplet-graph-mode
-  "Minor mode for chaplet graph buffers (SVG image or text outline).
+(define-derived-mode chaplet-graph-mode special-mode "Chaplet-Graph"
+  "Major mode for chaplet graph buffers (SVG image or text outline).
 \\{chaplet-graph-mode-map}"
-  :keymap chaplet-graph-mode-map)
+  (setq-local cursor-type nil))
 
 ;;;###autoload
-(defun chaplet-graph (&optional include-closed)
-  "Render the bd dependency DAG for the current scope.
-With prefix arg INCLUDE-CLOSED (e.g. `C-u'), include closed beads."
+(defun chaplet-graph (&optional open-only)
+  "Render the bd dependency DAG for the current scope (all beads by default).
+With prefix arg OPEN-ONLY (e.g. `C-u'), exclude closed beads."
   (interactive "P")
   (let ((buf (get-buffer-create "*chaplet:graph*")))
     (with-current-buffer buf
-      (setq-local chaplet-graph--include-closed (when include-closed t))
+      (unless (derived-mode-p 'chaplet-graph-mode)
+        (chaplet-graph-mode))
+      (setq-local chaplet-graph--include-closed (not open-only))
       (chaplet-graph--refresh))
     (pop-to-buffer buf)))
 

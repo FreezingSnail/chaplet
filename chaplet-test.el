@@ -578,9 +578,7 @@ call executes."
 (ert-deftest chaplet-test-graph-headless-render ()
   "`chaplet-graph--render' uses the text fallback when display-images-p is nil."
   :tags '(:chaplet)
-  (cl-letf (((symbol-function 'display-images-p) (lambda () nil))
-            ((symbol-function 'image-mode)
-             (lambda () (error "image-mode should not be called"))))
+  (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
     (with-temp-buffer
       (let* ((f (chaplet-test--graph-fixture))
              (buf (chaplet-graph--render (car f) (cdr f) nil)))
@@ -657,14 +655,33 @@ call executes."
       (should (equal (alist-get 'dependencies (car beads)) nil))
       (should (equal (alist-get 'dependencies (cadr beads)) '("bd-1"))))))
 
+(ert-deftest chaplet-test-bd-normalize-deps ()
+  "`chaplet-bd--normalize' maps dependency objects to `depends_on_id' strings."
+  (should (equal (chaplet-bd--normalize-deps
+                  '(((issue_id . "bd-2") (depends_on_id . "bd-1") (type . "blocks"))
+                    ((issue_id . "bd-2") (depends_on_id . "bd-0") (type . "parent-child"))))
+                 '("bd-1" "bd-0")))
+  (should (equal (chaplet-bd--normalize-deps '("bd-1")) '("bd-1")))
+  (should (equal (chaplet-bd--normalize-deps nil) nil))
+  (let ((bead (chaplet-bd--normalize
+               '((id . "bd-2")
+                 (dependencies . (((issue_id . "bd-2") (depends_on_id . "bd-1"))))))))
+    (should (equal (alist-get 'dependencies bead) '("bd-1")))))
+
 (ert-deftest chaplet-test-graph-include-closed ()
-  "`chaplet-graph' with a prefix arg requests closed beads."
+  "`chaplet-graph' includes closed beads by default; prefix arg → open only."
   :tags '(:chaplet)
   (let ((captured :unset))
     (cl-letf (((symbol-function 'chaplet-bd-graph-data)
                (lambda (include-closed) (setq captured include-closed) nil)))
-      (chaplet-graph '(4))                 ; C-u prefix arg
-      (should (eq captured t))))
+      (chaplet-graph)                       ; no prefix: all beads
+      (should (eq captured t)))
+    (kill-buffer "*chaplet:graph*")
+    (setq captured :unset)
+    (cl-letf (((symbol-function 'chaplet-bd-graph-data)
+               (lambda (include-closed) (setq captured include-closed) nil)))
+      (chaplet-graph '(4))                  ; C-u prefix arg: open only
+      (should (eq captured nil))))
   (kill-buffer "*chaplet:graph*"))
 
 (ert-deftest chaplet-test-list-s-key ()
@@ -748,6 +765,54 @@ call executes."
   (should (eq (lookup-key chaplet-graph-mode-map (kbd "c"))
               'chaplet-graph-toggle-closed))
   (should (eq (lookup-key chaplet-graph-mode-map (kbd "q")) 'quit-window)))
+
+(ert-deftest chaplet-test-graph-bind-evil ()
+  "`chaplet-graph--bind' also binds in evil normal + motion states."
+  :tags '(:chaplet)
+  (let (called)
+    (cl-letf (((symbol-function 'featurep) (lambda (f) (eq f 'evil)))
+              ((symbol-function 'evil-define-key*)
+               (lambda (state _map _key _cmd) (push state called))))
+      (chaplet-graph--bind (kbd "x") #'ignore))
+    (should (= (length called) 2))
+    (should (memq 'normal called))
+    (should (memq 'motion called))))
+
+(ert-deftest chaplet-test-graph-major-mode ()
+  "`chaplet-graph' leaves a read-only `chaplet-graph-mode' buffer, no cursor."
+  :tags '(:chaplet)
+  (let ((chaplet-bd-program chaplet-test--fake-bd))
+    (chaplet-graph)
+    (unwind-protect
+        (with-current-buffer "*chaplet:graph*"
+          (should (derived-mode-p 'chaplet-graph-mode))
+          (should (eq major-mode 'chaplet-graph-mode))
+          (should buffer-read-only)
+          (should-not cursor-type))
+      (kill-buffer "*chaplet:graph*"))))
+
+(ert-deftest chaplet-test-graph-no-image-mode ()
+  "`chaplet-graph--render' never calls `image-mode' in image or text path."
+  :tags '(:chaplet)
+  (cl-letf (((symbol-function 'image-mode)
+             (lambda (&rest _) (error "image-mode must not be called"))))
+    ;; Text path: images unavailable.
+    (cl-letf (((symbol-function 'display-images-p) (lambda () nil)))
+      (with-temp-buffer
+        (let ((f (chaplet-test--graph-fixture)))
+          (chaplet-graph--render (car f) (cdr f) nil)
+          (should chaplet-graph--text-mode))))
+    ;; Image path: svg available (svg-image stubbed to a valid image).
+    (cl-letf (((symbol-function 'display-images-p) (lambda () t))
+              ((symbol-function 'svg-image)
+               (lambda (&rest _)
+                 (list 'image :type 'svg :data "<svg/>"))))
+      (with-temp-buffer
+        (let ((f (chaplet-test--graph-fixture)))
+          (chaplet-graph--render (car f) (cdr f) nil)
+          (should-not chaplet-graph--text-mode)
+          (should (eq (lookup-key chaplet-graph-mode-map [bd-1 mouse-1])
+                      'chaplet-graph--open-node)))))))
 
 ;;; chaplet-face tests
 

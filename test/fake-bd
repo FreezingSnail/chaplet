@@ -26,7 +26,7 @@ case "$cmd" in
     cat <<'EOF'
 [
   {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"dependencies":[],"defer_until":null,"design":"","acceptance":"","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"},
-  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"dependencies":["bd-1"],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}
+  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"dependencies":[{"issue_id":"bd-2","depends_on_id":"bd-1","type":"blocks","metadata":"{}"}],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}
 ]
 EOF
     exit 0 ;;
