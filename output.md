@@ -1,55 +1,39 @@
-# chaplet-j0f.2 — rewrite + extend ASCII renderer tests
+# chaplet-v08 — optional lane cap (chaplet-graph--text-lane-max)
 
-## What changed
+Follow-up from `chaplet-ascii-compact` design §8.B: pathological fan-out
+(>~10 concurrent lanes) widens the gutter. Add an OPTIONAL cap that hides
+extra lanes without changing the default output.
 
-`chaplet-test.el` only (renderer `chaplet-graph.el` untouched). Rewrote the 3
-stale column-per-layer tests and added 6 gutter-tree fixtures, all asserting
-on concrete gutter glyphs `│ └ ┐ ─` plus node box text.
+## Changes
 
-### Rewritten
+- **`chaplet-graph--text-lane-max`** — new `defcustom` (choice: `nil`
+  "Unlimited" / `integer`, default `nil`), placed beside the other
+  `chaplet-graph--text-*` defcustoms. `nil` = unlimited (default behavior
+  unchanged).
 
-- **`chaplet-test-graph-text-columns`** — was `bd-3.*bd-2.*bd-1`. Now asserts
-  topological node order (`bd-1, missing-dep, bd-2, bd-3`) via a line-order
-  helper and the `└│`/`└┐` indentation glyphs.
-- **`chaplet-test-graph-text-edges`** — was `──→` + `│`. Now renders a 2-dep
-  merge (`a`, `b` roots → `c`) and asserts the `│` lane continuation on `b`'s
-  line and the `└┐` merge bus on `c`'s line; asserts `──`/`→` are absent.
-- **`chaplet-test-graph-text-fallback`** — swapped the `──→` assertion for
-  `└┐` + `└│` gutter glyphs, kept `▶` focus and `~` ghost assertions.
+- **`chaplet-graph--text-gutter`** — added a local `cap` binding and capped
+  the gutter-glyph loop to `(min ncol cap)` when `cap` is a non-nil integer.
+  Lanes at/after the cap render nothing; the node box is still emitted.
+  Lane-threading state (`open-count`, `cols`) still tracks every lane and
+  `p0`/`pk` still reference the full `cols` vector, so diamonds/merges keep
+  their semantics — only the rendered gutter is truncated. If a dep lane
+  falls at/after the cap its merge glyph (e.g. `┐`) is hidden (cosmetic).
 
-### Added
+- **`chaplet-graph--text-gutter` docstring** — updated to document the cap.
 
-- **`chaplet-test-graph-text-chain`** — a→b→c: each node once, `└` steps on
-  `b`/`c`, no `┐`/`│`.
-- **`chaplet-test-graph-text-fork`** — fan-out with continuing dependents
-  (a→{b,c}, b→d, c→e): two lanes open, `└│` + `│└` branching.
-- **`chaplet-test-graph-text-diamond`** — A←B, A←C, B+C←D: A once, `└` to B,
-  `└│` threading to C, `└┐` merge on D.
-- **`chaplet-test-graph-text-merge-bus`** — 3-dep node draws `└─┐` (`─` span)
-  with `│`/`││` continuations above.
-- **`chaplet-test-graph-text-width`** — every line
-  `(string-width line) ≤ max-lanes + 1 + box-width` (max-lanes 3); fixture max
-  line width `< 80` (actual 19).
-- **`chaplet-test-graph-text-truncation-e2e`** — asserts
-  `chaplet-graph--text-title-max` defaults to 20; a 40-char title renders as
-  19 chars + `…` (not the full title).
+## Tests (chaplet-test.el)
 
-### Helpers added
-
-- `chaplet-test--text-canvas (beads &optional focus-id)` — pure string render
-  (no buffer/display stub).
-- `chaplet-test--text-node-ids (beads &optional focus-id)` — node ids in line
-  order, extracted from `[id]` boxes.
+- `chaplet-test--graph-fanout-beads` — fixture: 6 roots merging into one node
+  → 6 concurrent lanes.
+- `chaplet-test-graph-text-lane-max-default` — defcustom default `nil`; the
+  existing fixture's box columns stay `(2 3 4 4)` (output unchanged).
+- `chaplet-test-graph-text-lane-max-unlimited` — `nil` renders every lane;
+  the merge bus spans all 6 lanes (`└────┐`).
+- `chaplet-test-graph-text-lane-max` — cap 3: every rendered gutter ≤ 3
+  columns, all 7 nodes appear once, `┐` (hidden lane) absent, box still
+  follows the capped gutter (`└──  [m]`).
 
 ## Verification
 
-`./check.sh` → exit 0: 115/115 ERT pass, 0 unexpected, byte-compile clean, no
-warnings. Focus/ghost/face/truncation assertions unchanged and still green.
-
-## Notes
-
-- Fork `┐` in the design §7 wording is a loose description; the renderer emits
-  `┐` only on merges (covered by the diamond/merge-bus/edges tests). The fork
-  test asserts the actual fan-out glyphs (`└│`/`│└`).
-- Chain produces only `└` steps (no `│`), since each lane closes immediately
-  after its single dependent prints.
+`./check.sh` → exit 0, 120/120 (117 existing + 3 new) green, compile clean,
+no warnings. Default output unchanged.

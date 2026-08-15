@@ -100,6 +100,20 @@ KEY-STRING entries are checked against `chaplet-graph-mode-map'.")
   :type 'integer
   :group 'chaplet-graph)
 
+(defcustom chaplet-graph--text-align nil
+  "When non-nil, right-pad each line's gutter so all node boxes align.
+Aligned at the diagram's widest gutter column, for a clean vertical
+scan column."
+  :type 'boolean
+  :group 'chaplet-graph)
+
+(defcustom chaplet-graph--text-lane-max nil
+  "Maximum gutter lane columns to draw before hiding further lanes.
+nil means unlimited.  Caps the horizontal width of the ASCII gutter
+for high fan-out DAGs."
+  :type '(choice (const :tag "Unlimited" nil) integer)
+  :group 'chaplet-graph)
+
 (defun chaplet-graph--image-available-p ()
   "Return non-nil when inline SVG images can be displayed in this session."
   (and (display-images-p) (fboundp 'svg-image)))
@@ -202,11 +216,18 @@ One node per line; a left gutter of `│ └ ┐ ─' threads the dependency
 lanes.  A node with deps draws a merge bus `└─…─┐' into itself; a lane
 stays open until its last dependent prints, so a diamond node appears
 once.  Width is proportional to concurrently open lanes, not DAG depth.
-FOCUS-ID nodes get the ▶ prefix via `chaplet-graph--text-node-line'."
+FOCUS-ID nodes get the ▶ prefix via `chaplet-graph--text-node-line'.
+When `chaplet-graph--text-align' is non-nil, each gutter is right-padded
+to the widest gutter column so every node box starts at the same column.
+When `chaplet-graph--text-lane-max' is a non-nil integer, lanes at or past
+that column are not drawn (the gutter stops there), capping the horizontal
+width for high-fan-out DAGs; lane-threading state still tracks every lane."
   (let* ((order (chaplet-graph--text-order nodes))
          (dependents (chaplet-graph--text-dependents edges order))
          (open-count (make-hash-table :test 'equal))
          (cols (make-vector 0 nil))
+         (cap (and (integerp chaplet-graph--text-lane-max)
+                   chaplet-graph--text-lane-max))
          (lines nil))
     ;; Remaining unprinted dependents per id (init = child count).
     (dolist (n order)
@@ -223,8 +244,8 @@ FOCUS-ID nodes get the ▶ prefix via `chaplet-graph--text-node-line'."
              (p0 (car dep-pos))
              (pk (car (last dep-pos)))
              (gutter ""))
-        ;; Gutter: one glyph per lane slot (hole → space).
-        (dotimes (i ncol)
+        ;; Gutter: one glyph per lane slot (hole → space), up to the cap.
+        (dotimes (i (if cap (min ncol cap) ncol))
           (let ((slot (aref cols i)))
             (setq gutter
                   (concat gutter
@@ -235,7 +256,7 @@ FOCUS-ID nodes get the ▶ prefix via `chaplet-graph--text-node-line'."
                                 ((< i pk) "─")
                                 ((= i pk) "┐")
                                 (t "│"))))))
-        (push (concat gutter " " (chaplet-graph--text-node-line n focus-id))
+        (push (cons gutter (concat " " (chaplet-graph--text-node-line n focus-id)))
               lines)
         ;; Close dep lanes whose last dependent is N.
         (dolist (dep deps)
@@ -258,7 +279,19 @@ FOCUS-ID nodes get the ▶ prefix via `chaplet-graph--text-node-line'."
           (while (and (> end 0) (null (aref cols (1- end))))
             (setq end (1- end)))
           (setq cols (substring cols 0 end)))))
-    (mapconcat #'identity (nreverse lines) "\n")))
+    (let* ((pairs (nreverse lines))
+           (max-gutter (apply #'max 0
+                              (mapcar (lambda (p) (string-width (car p)))
+                                      pairs))))
+      (mapconcat (lambda (p)
+                   (let ((g (car p)))
+                     (concat (if chaplet-graph--text-align
+                                 (concat g (make-string
+                                            (- max-gutter (string-width g))
+                                            ?\s))
+                               g)
+                             (cdr p))))
+                 pairs "\n"))))
 
 (defun chaplet-graph--text-canvas (nodes edges focus-id)
   "Build the gutter-tree ASCII text for NODES/EDGES (pure).

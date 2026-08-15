@@ -1223,6 +1223,14 @@ call executes."
         (push (match-string 1 line) ids)))
     (nreverse ids)))
 
+(defun chaplet-test--text-box-cols (beads &optional focus-id)
+  "Return the `[' column of each node box in the gutter render of BEADS."
+  (let ((cols nil))
+    (dolist (line (split-string (chaplet-test--text-canvas beads focus-id) "\n"))
+      (when (string-match "\\[\\([^]]+\\)\\]" line)
+        (push (match-beginning 0) cols)))
+    (nreverse cols)))
+
 (ert-deftest chaplet-test-graph-text-columns ()
   "Gutter-tree renderer lays out one node per line in topological order."
   (let ((s (chaplet-test--text-canvas chaplet-test--graph-beads)))
@@ -1357,6 +1365,79 @@ call executes."
     ;; Truncated to 19 x's + ellipsis (fits the 20-column budget).
     (should (string-match-p (concat (make-string 19 ?x) "…") s))
     (should-not (string-match-p (make-string 20 ?x) s))))
+
+(ert-deftest chaplet-test-graph-text-align-default ()
+  "`chaplet-graph--text-align' defaults to nil; boxes stay ragged."
+  (should (null chaplet-graph--text-align))
+  ;; bd-1 (no deps) starts at column 2; bd-2 threads a `└│' lane → column 4.
+  (should (equal (chaplet-test--text-box-cols chaplet-test--graph-beads)
+                 '(2 3 4 4)))
+  (let ((cols (chaplet-test--text-box-cols chaplet-test--graph-beads)))
+    (should-not (= (car cols) (car (last cols))))))
+
+(ert-deftest chaplet-test-graph-text-align ()
+  "`chaplet-graph--text-align' non-nil aligns every node box at one column."
+  (let ((chaplet-graph--text-align t))
+    (let* ((cols (chaplet-test--text-box-cols chaplet-test--graph-beads))
+           (s (chaplet-test--text-canvas chaplet-test--graph-beads)))
+      (should (= (length cols) 4))
+      (dolist (c (cdr cols))
+        (should (= c (car cols))))
+      ;; All boxes start after the widest gutter (column 4 here).
+      (should (= (car cols) 4))
+      ;; Lane-threading glyphs preserved (algorithm untouched).
+      (should (string-match-p "└" s))
+      (should (string-match-p "│" s))
+      (should (string-match-p "┐" s)))))
+
+(defvar chaplet-test--graph-fanout-beads
+  '(((id . "r1") (title . "one") (status . "open") (dependencies . nil))
+    ((id . "r2") (title . "two") (status . "open") (dependencies . nil))
+    ((id . "r3") (title . "three") (status . "open") (dependencies . nil))
+    ((id . "r4") (title . "four") (status . "open") (dependencies . nil))
+    ((id . "r5") (title . "five") (status . "open") (dependencies . nil))
+    ((id . "r6") (title . "six") (status . "open") (dependencies . nil))
+    ((id . "m") (title . "merge") (status . "open")
+     (dependencies . ("r1" "r2" "r3" "r4" "r5" "r6"))))
+  "Six roots merging into one node: 6 concurrent lanes (high fan-out).")
+
+(ert-deftest chaplet-test-graph-text-lane-max-default ()
+  "`chaplet-graph--text-lane-max' defaults to nil; output unchanged."
+  (should (null chaplet-graph--text-lane-max))
+  ;; Existing fixture's boxes stay at their default ragged columns.
+  (should (equal (chaplet-test--text-box-cols chaplet-test--graph-beads)
+                 '(2 3 4 4))))
+
+(ert-deftest chaplet-test-graph-text-lane-max-unlimited ()
+  "nil cap renders every lane; the merge bus spans all 6 lanes."
+  (let ((chaplet-graph--text-lane-max nil))
+    (let ((s (chaplet-test--text-canvas chaplet-test--graph-fanout-beads)))
+      (should (equal (chaplet-test--text-node-ids chaplet-test--graph-fanout-beads)
+                     '("r1" "r2" "r3" "r4" "r5" "r6" "m")))
+      ;; Merge line's gutter reaches the rightmost (6th) lane.
+      (should (string-match-p "└────┐" s))
+      (should (>= (apply #'max
+                         (mapcar (lambda (c) (- c 2))
+                                 (chaplet-test--text-box-cols
+                                  chaplet-test--graph-fanout-beads)))
+                  6)))))
+
+(ert-deftest chaplet-test-graph-text-lane-max ()
+  "`chaplet-graph--text-lane-max' caps rendered gutter width; boxes intact."
+  (let ((chaplet-graph--text-lane-max 3))
+    (let ((s (chaplet-test--text-canvas chaplet-test--graph-fanout-beads)))
+      ;; Every node still appears exactly once.
+      (should (equal (chaplet-test--text-node-ids chaplet-test--graph-fanout-beads)
+                     '("r1" "r2" "r3" "r4" "r5" "r6" "m")))
+      ;; No rendered gutter exceeds the cap (box column = gutter + 2).
+      (dolist (w (mapcar (lambda (c) (- c 2))
+                         (chaplet-test--text-box-cols
+                          chaplet-test--graph-fanout-beads)))
+        (should (<= w 3)))
+      ;; The merge bus is truncated at the cap: `┐' lane is hidden.
+      (should-not (string-match-p "┐" s))
+      ;; The node box still follows the capped gutter.
+      (should (string-match-p "└──  \\[m\\]" s)))))
 
 (ert-deftest chaplet-test-graph-text-focus ()
   "ASCII renderer marks the focused node with a ▶ prefix."
