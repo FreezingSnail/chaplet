@@ -65,6 +65,23 @@ Rules:
 - Unknown behavior → add a `probe-*` ERT test in `probes/`, run `./check.sh probe probes/<topic>.el`.
 - Probes are exploratory; promote by renaming `probe-*` → `chaplet-test-*`.
 
+## Assumptions
+
+### Evil-mode keybindings
+
+Every buffer-local keybinding MUST be evil-aware. Use the repo's binding
+helpers (`chaplet-list--bind`, `chaplet-graph--bind`) — never a bare
+`define-key` in a mode map.
+
+- Bind in the plain keymap AND evil `normal`/`motion` states.
+- Use the `evil-define-key*` *function*, not the `evil-define-key` macro, so
+  the file byte-compiles when evil isn't installed.
+- Guard with `(and (featurep 'evil) (fboundp 'evil-define-key*))`.
+- Read-only buffers: suppress single-char evil motions that would leak
+  (e.g. `v` → visual mode).
+- Test both paths (plain + evil) — see `chaplet-test-list-bind-evil`,
+  `chaplet-test-graph-bind-evil`.
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:6cd5cc61 -->
 ## Beads Issue Tracker
 
