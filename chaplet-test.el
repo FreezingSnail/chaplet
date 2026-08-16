@@ -99,6 +99,11 @@
   (let ((chaplet-bd-program chaplet-test--fake-bd))
     (should (eq (chaplet-bd-undefer "bd-1") t))))
 
+(ert-deftest chaplet-test-bd-label-remove ()
+  "`chaplet-bd-label-remove' returns t on success."
+  (let ((chaplet-bd-program chaplet-test--fake-bd))
+    (should (eq (chaplet-bd-label-remove "bd-1" "staged") t))))
+
 (ert-deftest chaplet-test-bd-create ()
   "`chaplet-bd-create' returns the new id."
   (let ((chaplet-bd-program chaplet-test--fake-bd))
@@ -109,7 +114,8 @@
   (cl-letf (((symbol-function 'chaplet-bd--invoke)
              (lambda (_args) (cons 1 ""))))
     (should (eq (chaplet-bd-defer "bd-1") nil))
-    (should (eq (chaplet-bd-undefer "bd-1") nil))))
+    (should (eq (chaplet-bd-undefer "bd-1") nil))
+    (should (eq (chaplet-bd-label-remove "bd-1" "staged") nil))))
 
 (ert-deftest chaplet-test-bd-comment-args ()
   "`chaplet-bd-comment' assembles correct args."
@@ -130,6 +136,8 @@
       (should (equal captured '("update" "bd-1" "--acceptance" "the acc")))
       (chaplet-bd-label "bd-1" "staged")
       (should (equal captured '("label" "add" "bd-1" "staged")))
+      (chaplet-bd-label-remove "bd-1" "staged")
+      (should (equal captured '("label" "remove" "bd-1" "staged")))
       (chaplet-bd-undefer "bd-1")
       (should (equal captured '("undefer" "bd-1")))
       (chaplet-bd-defer "bd-1")
@@ -391,16 +399,21 @@
     (should-not (chaplet-transient--action-visible-p 'edit-design))))
 
 (ert-deftest chaplet-test-transient-approve ()
-  "`chaplet-approve' undefer's the bead at point and refreshes."
-  (let (undefer-id refreshed)
+  "`chaplet-approve' undefer's the bead at point, strips the staged
+label, and refreshes."
+  (let (undefer-id removed-id removed-label refreshed)
     (cl-letf (((symbol-function 'chaplet-bd-undefer)
                (lambda (id) (setq undefer-id id) t))
+              ((symbol-function 'chaplet-bd-label-remove)
+               (lambda (id label) (setq removed-id id removed-label label) t))
               ((symbol-function 'chaplet-list-refresh)
                (lambda () (setq refreshed t)))
               ((symbol-function 'chaplet-transient--id-at-point)
                (lambda () "bd-1")))
       (chaplet-approve)
       (should (equal undefer-id "bd-1"))
+      (should (equal removed-id "bd-1"))
+      (should (equal removed-label chaplet-staged-label))
       (should refreshed))))
 
 (ert-deftest chaplet-test-transient-reject ()
@@ -478,12 +491,17 @@
   (should (fboundp 'chaplet-graph)))
 
 (ert-deftest chaplet-test-transient-detail-approve ()
-  "`chaplet-transient-approve' undefer's an explicit id without refresh."
-  (let (undefer-id)
+  "`chaplet-transient-approve' undefer's an explicit id and strips the
+staged label, without refresh."
+  (let (undefer-id removed-id removed-label)
     (cl-letf (((symbol-function 'chaplet-bd-undefer)
-               (lambda (id) (setq undefer-id id) t)))
+               (lambda (id) (setq undefer-id id) t))
+              ((symbol-function 'chaplet-bd-label-remove)
+               (lambda (id label) (setq removed-id id removed-label label) t)))
       (chaplet-transient-approve "bd-7")
-      (should (equal undefer-id "bd-7")))))
+      (should (equal undefer-id "bd-7"))
+      (should (equal removed-id "bd-7"))
+      (should (equal removed-label chaplet-staged-label)))))
 
 (ert-deftest chaplet-test-entry-opens-inbox ()
   "`chaplet' opens the inbox (staged) view."

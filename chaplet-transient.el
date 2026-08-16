@@ -58,11 +58,15 @@ Open rows: comment/edit-design/new.  Everything else: comment only."
 ;;; Actions
 
 (defun chaplet-approve (&optional id)
-  "Approve (undefer) the bead at point, then refresh the list."
+  "Approve (undefer) the bead at point, strip its staged label, refresh.
+Approve flips a staged bead out of the inbox (status=deferred AND
+label=staged): undefer restores it to open and label removal keeps it
+out of the deferred+staged query."
   (interactive)
   (let ((id (or id (chaplet-transient--id-at-point))))
     (when id
       (chaplet-bd-undefer id)
+      (chaplet-bd-label-remove id chaplet-staged-label)
       (chaplet-transient--refresh))))
 
 (defun chaplet-reject (&optional id)
@@ -110,9 +114,11 @@ Rejection stays staged (a comment is added, the bead is not undeferred)."
 ;;; Detail-buffer delegation (id-taking, no list refresh)
 
 (defun chaplet-transient-approve (id)
-  "Approve (undefer) bead ID.  Used by `chaplet-detail-approve'."
+  "Approve (undefer) bead ID and strip its staged label.
+Used by `chaplet-detail-approve'."
   (interactive "sBead id: ")
-  (chaplet-bd-undefer id))
+  (chaplet-bd-undefer id)
+  (chaplet-bd-label-remove id chaplet-staged-label))
 
 (defun chaplet-transient-reject (id)
   "Reject bead ID: prompt for feedback and comment \"rejected: <fb>\"."

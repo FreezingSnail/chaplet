@@ -36,7 +36,7 @@ back to status=deferred as a documented approximation."
   (and (string= (alist-get 'status bead) "deferred")
        (let ((labels (alist-get 'labels bead)))
          (or (not (consp labels))
-             (member "staged" labels)))))
+             (member chaplet-staged-label labels)))))
 
 (defun chaplet-list--filters->query (base filters)
   "Append FILTERS alist clauses to BASE query expr, joined by \" AND \"."

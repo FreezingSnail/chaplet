@@ -102,8 +102,13 @@ Value filters (:status, :type, :priority, :label, :limit) emit --flag=value."
 
 ;;; Views
 
+(defconst chaplet-staged-label "staged"
+  "Label marking a bead as staged (deferred, awaiting review).
+The inbox view is the set of staged beads; approving one must strip
+this label so it leaves the inbox even if it stays deferred.")
+
 (defconst chaplet-bd--views
-  '((inbox . ((:status . "deferred") (:label . "staged")))
+  `((inbox . ((:status . "deferred") (:label . ,chaplet-staged-label)))
     (open . ((:status . "open")))
     (in-progress . ((:status . "in_progress")))
     (blocked . ((:status . "blocked")))
@@ -226,6 +231,10 @@ Each bead alist carries `dependencies' (list of id strings)."
 (defun chaplet-bd-label (id label)
   "Add LABEL to bead ID.  Return t on success."
   (chaplet-bd--ok (list "label" "add" id label)))
+
+(defun chaplet-bd-label-remove (id label)
+  "Remove LABEL from bead ID.  Return t on success."
+  (chaplet-bd--ok (list "label" "remove" id label)))
 
 (provide 'chaplet-bd)
 ;;; chaplet-bd.el ends here
