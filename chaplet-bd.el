@@ -100,6 +100,45 @@ Value filters (:status, :type, :priority, :label, :limit) emit --flag=value."
         (`(:deferred . ,v) (when v (push "--deferred" args)))
         (_ (error "chaplet-bd: unknown filter %S" f))))))
 
+;;; Views
+
+(defconst chaplet-bd--views
+  '((inbox . ((:status . "deferred") (:label . "staged")))
+    (open . ((:status . "open")))
+    (in-progress . ((:status . "in_progress")))
+    (blocked . ((:status . "blocked")))
+    (closed . ((:status . "closed")))
+    (all . ((:all . t))))
+  "Canonical view symbol → filters alist.")
+
+(defun chaplet-bd--view-filters (view)
+  "Return the filters alist for VIEW (a symbol in `chaplet-bd--views')."
+  (alist-get view chaplet-bd--views))
+
+(defun chaplet-bd--view-names ()
+  "Return the list of known view symbols."
+  (mapcar #'car chaplet-bd--views))
+
+(defun chaplet-bd--filters->expr (filters)
+  "Convert FILTERS alist into a `bd query' expression string.
+Value filters (:status/:type/:label/:priority) emit \"key=value\";
+boolean filters (:all/:ready/:deferred) are skipped.  Clauses are
+joined by \" AND \"."
+  (mapconcat #'identity
+             (delq nil
+                   (mapcar (lambda (f)
+                             (pcase f
+                               (`(:status . ,v)   (format "status=%s" v))
+                               (`(:type . ,v)     (format "type=%s" v))
+                               (`(:label . ,v)    (format "label=%s" v))
+                               (`(:priority . ,v) (format "priority=%s" v))
+                               (`(:all . ,_) nil)
+                               (`(:ready . ,_) nil)
+                               (`(:deferred . ,_) nil)
+                               (_ (error "chaplet-bd: unknown filter %S" f))))
+                           filters))
+             " AND "))
+
 ;;; Reads
 
 (defun chaplet-bd-list (&optional filters)
@@ -145,12 +184,11 @@ Otherwise `bd graph --dot --all' (open issues only)."
       (when (= (car result) 0)
         (cdr result)))))
 
-(defun chaplet-bd-graph-data (&optional include-closed)
+(defun chaplet-bd-graph-data (&optional filters)
   "Return bead alists for the graph scope.
-INCLUDE-CLOSED nil → open beads only (`chaplet-bd-list' with nil filters);
-non-nil → include closed beads (`chaplet-bd-list' with `((:all . t))').
+FILTERS is a filters alist forwarded to `chaplet-bd-list'.
 Each bead alist carries `dependencies' (list of id strings)."
-  (chaplet-bd-list (if include-closed '((:all . t)) nil)))
+  (chaplet-bd-list filters))
 
 ;;; Writes
 

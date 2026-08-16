@@ -11,3 +11,6 @@
 
 # fake-bd runtime state (full-loop tests)
 test/.fake-bd-state
+
+# worker output contracts
+output.md

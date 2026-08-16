@@ -34,6 +34,28 @@
                   '((:status . "open") (:type . "task") (:all . t)))
                  '("--status=open" "--type=task" "--all"))))
 
+(ert-deftest chaplet-test-bd-views ()
+  "Canonical view table exposes filters and names."
+  (should (equal (chaplet-bd--view-filters 'inbox)
+                 '((:status . "deferred") (:label . "staged"))))
+  (should (equal (chaplet-bd--view-filters 'all) '((:all . t))))
+  (should (equal (chaplet-bd--view-filters 'bogus) nil))
+  (should (equal (chaplet-bd--view-names)
+                 '(inbox open in-progress blocked closed all))))
+
+(ert-deftest chaplet-test-bd-filters->expr ()
+  "`chaplet-bd--filters->expr' composes query clauses, skipping booleans."
+  (should (equal (chaplet-bd--filters->expr
+                  '((:status . "deferred") (:label . "staged")))
+                 "status=deferred AND label=staged"))
+  (should (equal (chaplet-bd--filters->expr '((:type . "task"))) "type=task"))
+  (should (equal (chaplet-bd--filters->expr '((:priority . 2)))
+                 "priority=2"))
+  (should (equal (chaplet-bd--filters->expr '((:all . t))) ""))
+  (should (equal (chaplet-bd--filters->expr
+                  '((:status . "open") (:all . t) (:type . "task")))
+                 "status=open AND type=task")))
+
 (ert-deftest chaplet-test-bd-list ()
   "`chaplet-bd-list' returns parsed bead alists."
   (let ((chaplet-bd-program chaplet-test--fake-bd))
@@ -569,11 +591,12 @@ call executes."
     (unwind-protect
         (progn
           (should (eq major-mode 'chaplet-list-mode))
-          (should (equal (buffer-name) "*chaplet:inbox*"))
+          (should (equal (buffer-name) "*chaplet*"))
+          (should (eq chaplet-list--current-view 'inbox))
           (should (fboundp 'chaplet-transient))
           (should (eq (lookup-key chaplet-list-mode-map (kbd "?"))
                       'chaplet-transient)))
-      (kill-buffer "*chaplet:inbox*"))))
+      (kill-buffer "*chaplet*"))))
 
 (ert-deftest chaplet-test-graph-headless-render ()
   "`chaplet-graph--render' uses the text fallback when display-images-p is nil."
@@ -605,18 +628,23 @@ call executes."
               'chaplet-list-set-view)))
 
 (ert-deftest chaplet-test-list-set-view-closed ()
-  "`chaplet-list-set-view' to `closed` renders closed beads."
+  "`chaplet-list-set-view' to `closed` renders closed beads in-place.
+Uses the single shared `*chaplet*` buffer (no per-view buffers)."
   :tags '(:chaplet)
   (cl-letf (((symbol-function 'chaplet-bd-query)
              (lambda (_q) '(((id . "bd-9") (status . "closed")
                              (issue_type . "task") (title . "done"))))))
     (unwind-protect
         (progn
+          (chaplet-list-set-view 'inbox)
+          (should (get-buffer "*chaplet*"))
           (chaplet-list-set-view 'closed)
-          (should (get-buffer "*chaplet:closed*"))
-          (should (with-current-buffer "*chaplet:closed*"
+          (should (eq chaplet-list--current-view 'closed))
+          (should (get-buffer "*chaplet*"))
+          (should-not (get-buffer "*chaplet:closed*"))
+          (should (with-current-buffer "*chaplet*"
                     (string-match-p "bd-9" (buffer-string)))))
-      (kill-buffer "*chaplet:closed*"))))
+      (kill-buffer "*chaplet*"))))
 
 (ert-deftest chaplet-test-bd-graph-dot-args ()
   "`chaplet-bd-graph-dot' assembles graph/list args per filters."
@@ -632,7 +660,7 @@ call executes."
       (should (equal captured '("graph" "--dot" "bd-9"))))))
 
 (ert-deftest chaplet-test-bd-graph-data-filters ()
-  "`chaplet-bd-graph-data' without include-closed calls `chaplet-bd-list' with nil filters."
+  "`chaplet-bd-graph-data' without filters calls `chaplet-bd-list' with nil filters."
   (let ((captured :unset))
     (cl-letf (((symbol-function 'chaplet-bd-list)
                (lambda (filters) (setq captured filters) nil)))
@@ -640,11 +668,11 @@ call executes."
       (should (equal captured nil)))))
 
 (ert-deftest chaplet-test-bd-graph-data-all ()
-  "`chaplet-bd-graph-data' with include-closed passes `((:all . t))' filters."
+  "`chaplet-bd-graph-data' forwards its filters alist to `chaplet-bd-list'."
   (let ((captured :unset))
     (cl-letf (((symbol-function 'chaplet-bd-list)
                (lambda (filters) (setq captured filters) nil)))
-      (chaplet-bd-graph-data t)
+      (chaplet-bd-graph-data '((:all . t)))
       (should (equal captured '((:all . t)))))))
 
 (ert-deftest chaplet-test-bd-graph-data-deps ()
@@ -669,33 +697,45 @@ call executes."
     (should (equal (alist-get 'dependencies bead) '("bd-1")))))
 
 (ert-deftest chaplet-test-graph-include-closed ()
-  "`chaplet-graph' includes closed beads by default; prefix arg → open only."
+  "`chaplet-graph' defaults to the all view; C-u opens the open view."
   :tags '(:chaplet)
   (let ((captured :unset))
     (cl-letf (((symbol-function 'chaplet-bd-graph-data)
-               (lambda (include-closed) (setq captured include-closed) nil)))
-      (chaplet-graph)                       ; no prefix: all beads
-      (should (eq captured t)))
+               (lambda (filters) (setq captured filters) nil)))
+      (chaplet-graph)                       ; no prefix: all view
+      (should (equal captured '((:all . t)))))
     (kill-buffer "*chaplet:graph*")
     (setq captured :unset)
     (cl-letf (((symbol-function 'chaplet-bd-graph-data)
-               (lambda (include-closed) (setq captured include-closed) nil)))
-      (chaplet-graph '(4))                  ; C-u prefix arg: open only
-      (should (eq captured nil))))
-  (kill-buffer "*chaplet:graph*"))
+               (lambda (filters) (setq captured filters) nil)))
+      (let ((current-prefix-arg '(4)))
+        (call-interactively #'chaplet-graph)) ; C-u prefix arg: open view
+      (should (equal captured '((:status . "open")))))
+    (kill-buffer "*chaplet:graph*")))
 
 (ert-deftest chaplet-test-list-s-key ()
-  "`s' in `chaplet-list-mode-map' opens the graph view."
+  "`s' in `chaplet-list-mode-map' opens the graph for the current view."
   :tags '(:chaplet)
   (should (eq (lookup-key chaplet-list-mode-map (kbd "s"))
-              'chaplet-graph)))
+              'chaplet-list-graph)))
+
+(ert-deftest chaplet-test-list-graph ()
+  "`chaplet-list-graph' passes `chaplet-list--current-view' to `chaplet-graph'."
+  :tags '(:chaplet)
+  (let ((called :unset))
+    (cl-letf (((symbol-function 'chaplet-graph)
+               (lambda (view) (setq called view))))
+      (with-temp-buffer
+        (setq-local chaplet-list--current-view 'closed)
+        (chaplet-list-graph)
+        (should (eq called 'closed))))))
 
 (ert-deftest chaplet-test-list-bind-keys ()
   "RET/v/s/q bound in `chaplet-list-mode-map' (plain + evil-aware)."
   :tags '(:chaplet)
   (should (eq (lookup-key chaplet-list-mode-map (kbd "RET")) 'chaplet-list-open))
   (should (eq (lookup-key chaplet-list-mode-map (kbd "v")) 'chaplet-list-set-view))
-  (should (eq (lookup-key chaplet-list-mode-map (kbd "s")) 'chaplet-graph))
+  (should (eq (lookup-key chaplet-list-mode-map (kbd "s")) 'chaplet-list-graph))
   (should (eq (lookup-key chaplet-list-mode-map (kbd "q")) 'quit-window)))
 
 (ert-deftest chaplet-test-list-bind-question ()
@@ -718,34 +758,57 @@ call executes."
     (should (equal (nth 2 called) (kbd "x")))
     (should (eq (nth 3 called) #'ignore))))
 
-(ert-deftest chaplet-test-graph-toggle-closed ()
-  "`chaplet-graph-toggle-closed' flips `chaplet-graph--include-closed'."
-  :tags '(:chaplet)
-  (with-temp-buffer
-    (setq-local chaplet-graph--include-closed nil)
-    (cl-letf (((symbol-function 'chaplet-bd-graph-data) (lambda (_ic) nil)))
-      (chaplet-graph-toggle-closed)
-      (should chaplet-graph--include-closed)
-      (chaplet-graph-toggle-closed)
-      (should-not chaplet-graph--include-closed))))
-
 (ert-deftest chaplet-test-graph-refresh-closed ()
-  "`chaplet-graph--refresh' forwards `chaplet-graph--include-closed' to graph-data."
+  "`chaplet-graph--refresh' forwards view filters to `chaplet-bd-graph-data'."
   :tags '(:chaplet)
   (let (captured)
     (with-temp-buffer
-      (setq-local chaplet-graph--include-closed t)
+      (setq-local chaplet-graph--view 'all)
       (cl-letf (((symbol-function 'chaplet-bd-graph-data)
-                 (lambda (include-closed) (setq captured include-closed) nil)))
+                 (lambda (filters) (setq captured filters) nil)))
         (chaplet-graph--refresh)
-        (should (eq captured t))))
+        (should (equal captured '((:all . t))))))
     (setq captured :unset)
     (with-temp-buffer
-      (setq-local chaplet-graph--include-closed nil)
+      (setq-local chaplet-graph--view 'closed)
       (cl-letf (((symbol-function 'chaplet-bd-graph-data)
-                 (lambda (include-closed) (setq captured include-closed) nil)))
+                 (lambda (filters) (setq captured filters) nil)))
         (chaplet-graph--refresh)
-        (should (eq captured nil))))))
+        (should (equal captured '((:status . "closed"))))))))
+
+(ert-deftest chaplet-test-graph-set-view ()
+  "`chaplet-graph-set-view' switches the view symbol and refreshes."
+  :tags '(:chaplet)
+  (let (captured)
+    (with-temp-buffer
+      (setq-local chaplet-graph--view 'all)
+      (cl-letf (((symbol-function 'chaplet-bd-graph-data)
+                 (lambda (filters) (setq captured filters) nil)))
+        (chaplet-graph-set-view 'closed)
+        (should (eq chaplet-graph--view 'closed))
+        (should (equal captured '((:status . "closed"))))))))
+
+(ert-deftest chaplet-test-graph-set-view-interactive ()
+  "`chaplet-graph-set-view' completes over `chaplet-bd--view-names'."
+  :tags '(:chaplet)
+  (let (prompt-collection)
+    (cl-letf (((symbol-function 'completing-read)
+               (lambda (_prompt collection &rest _)
+                 (setq prompt-collection collection)
+                 "in-progress"))
+              ((symbol-function 'chaplet-bd-graph-data)
+               (lambda (_filters) nil)))
+      (with-temp-buffer
+        (setq-local chaplet-graph--view 'all)
+        (call-interactively #'chaplet-graph-set-view)
+        (should (equal prompt-collection
+                       '("inbox" "open" "in-progress" "blocked" "closed" "all")))
+        (should (eq chaplet-graph--view 'in-progress))))))
+
+(ert-deftest chaplet-test-graph-default-view ()
+  "`chaplet-graph--view' defaults to `all' in a fresh buffer."
+  (with-temp-buffer
+    (should (eq chaplet-graph--view 'all))))
 
 (ert-deftest chaplet-test-graph-mode-map ()
   "`chaplet-graph-mode-map' binds the full navigation key set."
@@ -762,8 +825,9 @@ call executes."
               'chaplet-graph--jump-deps))
   (should (eq (lookup-key chaplet-graph-mode-map (kbd "g"))
               'chaplet-graph--refresh))
-  (should (eq (lookup-key chaplet-graph-mode-map (kbd "c"))
-              'chaplet-graph-toggle-closed))
+  (should (eq (lookup-key chaplet-graph-mode-map (kbd "v"))
+              'chaplet-graph-set-view))
+  (should-not (lookup-key chaplet-graph-mode-map (kbd "c")))
   (should (eq (lookup-key chaplet-graph-mode-map (kbd "q")) 'quit-window)))
 
 (ert-deftest chaplet-test-graph-bind-evil ()
@@ -1485,14 +1549,14 @@ call executes."
   "`chaplet-graph--refresh' re-fetches and keeps focus when still present."
   (let ((fetched :unset))
     (cl-letf (((symbol-function 'chaplet-bd-graph-data)
-               (lambda (include-closed)
-                 (setq fetched include-closed)
+               (lambda (filters)
+                 (setq fetched filters)
                  chaplet-test--graph-beads)))
       (with-temp-buffer
-        (setq-local chaplet-graph--include-closed nil)
+        (setq-local chaplet-graph--view 'open)
         (setq-local chaplet-graph--focus-id "bd-2")
         (chaplet-graph--refresh)
-        (should (eq fetched nil))
+        (should (equal fetched '((:status . "open"))))
         (should (equal chaplet-graph--focus-id "bd-2"))
         (should (= (length chaplet-graph--nodes) 4))
         ;; Focus is dropped when the node no longer exists.

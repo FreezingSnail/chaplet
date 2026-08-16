@@ -16,7 +16,7 @@
 ;; Buffer/navigation: `chaplet-graph' (entry), `chaplet-graph-mode'
 ;; major mode (derived from `special-mode') binds n/p (focus next/prev),
 ;; RET (open focused in `chaplet-detail'), d/f (jump dependents/deps),
-;; g (refresh), c (toggle closed), q (quit).  Node hot-spots bind
+;; g (refresh), v (switch view), q (quit).  Node hot-spots bind
 ;; `[ID mouse-1]' (open) and `[ID mouse-2]' (dependents).  Bindings
 ;; live in the major mode `chaplet-graph-mode' keymap via the
 ;; evil-aware `chaplet-graph--bind' (plain + evil normal/motion).
@@ -40,8 +40,8 @@
   "Id of the focused node in the current graph buffer.")
 (defvar-local chaplet-graph--text-mode nil
   "Non-nil when the current graph buffer shows the text fallback.")
-(defvar-local chaplet-graph--include-closed t
-  "Non-nil when the current graph buffer includes closed beads (default).")
+(defvar-local chaplet-graph--view 'all
+  "Current view symbol for the graph buffer (default `all').")
 
 (defvar chaplet-graph-mode-map
   (make-sparse-keymap)
@@ -66,11 +66,8 @@ safely when evil isn't loaded."
 (chaplet-graph--bind (kbd "d") #'chaplet-graph--jump-dependents)
 (chaplet-graph--bind (kbd "f") #'chaplet-graph--jump-deps)
 (chaplet-graph--bind (kbd "g") #'chaplet-graph--refresh)
-(chaplet-graph--bind (kbd "c") #'chaplet-graph-toggle-closed)
+(chaplet-graph--bind (kbd "v") #'chaplet-graph-set-view)
 (chaplet-graph--bind (kbd "q") #'quit-window)
-;; No `v' action in the graph viewer: suppress it under evil so the
-;; default evil `v' (visual mode) doesn't leak into this read-only buffer.
-(chaplet-graph--bind (kbd "v") #'undefined)
 
 (declare-function chaplet-detail "chaplet-detail" (id))
 
@@ -85,7 +82,7 @@ Each element is a key vector `[ID mouse-1]' or `[ID mouse-2]'.")
     ("d" . "dependents")
     ("f" . "deps")
     ("g" . "refresh")
-    ("c" . "toggle closed")
+    ("v" . "view switch")
     ("q" . "quit"))
   "Keybinding reference entries for the graph buffer bar (keyboard).
 KEY-STRING entries are checked against `chaplet-graph-mode-map'.")
@@ -308,7 +305,7 @@ One node per line, each box `[id] title' plus state tag, with a left
 gutter of `│ └ ┐ ─' threading the dependency lanes (design §4.4).  The
 focused node gets a ▶ prefix and ghost nodes a `~' marker.  Faces come
 from `chaplet-face' (id/state/staged).  Same keys as the image render
-(n/p/RET/d/f/g/c/q) operate through `chaplet-graph--focus-id'."
+(n/p/RET/d/f/g/v/q) operate through `chaplet-graph--focus-id'."
   (let ((inhibit-read-only t))
     (erase-buffer)
     (let ((s (chaplet-graph--text-canvas nodes edges focus-id)))
@@ -344,15 +341,16 @@ Returns the current buffer."
 (defun chaplet-graph--update-mode-line ()
   "Set `mode-line-process' in the current graph buffer."
   (setq mode-line-process
-        (format " %s%s" (if chaplet-graph--text-mode "text" "svg")
-                (if chaplet-graph--include-closed " all" " open"))))
+        (format " %s %s" (if chaplet-graph--text-mode "text" "svg")
+                (symbol-name chaplet-graph--view))))
 
 (defun chaplet-graph--refresh ()
   "Re-fetch, re-layout and re-render the graph in the current buffer.
 Preserves `chaplet-graph--focus-id' when the focused node still exists."
   (interactive)
   (let* ((keep-focus chaplet-graph--focus-id)
-         (beads (chaplet-bd-graph-data chaplet-graph--include-closed)))
+         (beads (chaplet-bd-graph-data
+                 (chaplet-bd--view-filters chaplet-graph--view))))
     (if (null beads)
         (message "chaplet: no graph data")
       (let* ((layout (chaplet-graph--layout
@@ -367,10 +365,16 @@ Preserves `chaplet-graph--focus-id' when the focused node still exists."
                      keep-focus))
         (chaplet-graph--render nodes edges chaplet-graph--focus-id)))))
 
-(defun chaplet-graph-toggle-closed ()
-  "Toggle whether the graph includes closed beads, then re-render."
-  (interactive)
-  (setq-local chaplet-graph--include-closed (not chaplet-graph--include-closed))
+(defun chaplet-graph-set-view (name)
+  "Switch the graph view to NAME, then re-render.
+NAME is a symbol from `chaplet-bd--view-names' (completing read when
+called interactively)."
+  (interactive
+   (list (intern (completing-read "View: "
+                                  (mapcar #'symbol-name
+                                          (chaplet-bd--view-names))
+                                  nil t))))
+  (setq-local chaplet-graph--view name)
   (chaplet-graph--refresh))
 
 (defun chaplet-graph--focus-relative (delta)
@@ -437,15 +441,15 @@ Preserves `chaplet-graph--focus-id' when the focused node still exists."
   (setq-local cursor-type nil))
 
 ;;;###autoload
-(defun chaplet-graph (&optional open-only)
-  "Render the bd dependency DAG for the current scope (all beads by default).
-With prefix arg OPEN-ONLY (e.g. `C-u'), exclude closed beads."
-  (interactive "P")
+(defun chaplet-graph (&optional view)
+  "Render the bd dependency DAG for VIEW (default the `all' view).
+With prefix arg (e.g. `C-u'), open the `open' view only."
+  (interactive (list (and current-prefix-arg 'open)))
   (let ((buf (get-buffer-create "*chaplet:graph*")))
     (with-current-buffer buf
       (unless (derived-mode-p 'chaplet-graph-mode)
         (chaplet-graph-mode))
-      (setq-local chaplet-graph--include-closed (not open-only))
+      (setq-local chaplet-graph--view (or view 'all))
       (chaplet-graph--refresh))
     (pop-to-buffer buf)))
 

@@ -13,15 +13,6 @@
 
 ;;; Views
 
-(defvar chaplet-list--views
-  '((inbox       . "status=deferred AND label=staged")
-    (open        . "status=open")
-    (in-progress . "status=in_progress")
-    (blocked     . "status=blocked")
-    (closed      . "status=closed")
-    (all         . nil))
-  "Alist of view symbol -> bd query expression (nil = unfiltered all).")
-
 (defvar-local chaplet-list--current-view 'inbox
   "The view shown in the current `chaplet-list-mode' buffer.")
 
@@ -34,7 +25,9 @@
 
 (defun chaplet-list--view-query (view)
   "Return the bd query expression for VIEW, or nil for the all view."
-  (cdr (assq view chaplet-list--views)))
+  (if (eq view 'all)
+      nil
+    (chaplet-bd--filters->expr (chaplet-bd--view-filters view))))
 
 (defun chaplet-list--staged-p (bead)
   "Return non-nil if BEAD is staged: status=deferred AND label=staged.
@@ -46,21 +39,18 @@ back to status=deferred as a documented approximation."
              (member "staged" labels)))))
 
 (defun chaplet-list--filters->query (base filters)
-  "Append FILTERS alist as `field=value' clauses to BASE query expr."
-  (let ((clauses (delq nil (list base))))
-    (dolist (f filters)
-      (pcase f
-        (`(:type . ,v)  (push (format "type=%s" v) clauses))
-        (`(:label . ,v) (push (format "label=%s" v) clauses))
-        (_ nil)))
-    (mapconcat #'identity (nreverse clauses) " AND ")))
+  "Append FILTERS alist clauses to BASE query expr, joined by \" AND \"."
+  (mapconcat #'identity
+             (delete "" (delq nil (list base (chaplet-bd--filters->expr filters))))
+             " AND "))
 
 (defun chaplet-list--fetch (view)
   "Return the list of bead alists for VIEW, honoring active filters."
-  (let ((query (chaplet-list--view-query view)))
-    (if query
-        (chaplet-bd-query (chaplet-list--filters->query query chaplet-list--filters))
-      (chaplet-bd-list (append '((:all . t)) chaplet-list--filters)))))
+  (let ((filters (append (chaplet-bd--view-filters view)
+                         chaplet-list--filters)))
+    (if (assq :all filters)
+        (chaplet-bd-list filters)
+      (chaplet-bd-query (chaplet-bd--filters->expr filters)))))
 
 (defun chaplet-list--priority-dot (priority)
   "Return the priority display cell for PRIORITY (number or nil).
@@ -118,9 +108,8 @@ Counts are derived from the current `tabulated-list-entries' (state = col 3)."
 KEY-STRING entries are checked against `chaplet-list-mode-map' before
 being listed, so the bar mirrors the real bindings.")
 
-(defun chaplet-list--buffer-name (view)
-  "Return the buffer name for VIEW."
-  (format "*chaplet:%s*" view))
+(defconst chaplet-list--buffer-name "*chaplet*"
+  "Name of the single list buffer (one buffer, no per-view stacking).")
 
 (defun chaplet-list--show-raw (id)
   "Display raw `bd show ID' output in a buffer (fallback when detail absent)."
@@ -153,14 +142,19 @@ being listed, so the bar mirrors the real bindings.")
   "Switch the bead browser to view NAME (a symbol)."
   (interactive
    (list (intern
-          (completing-read
-           "View: "
-           (mapcar (lambda (v) (symbol-name (car v))) chaplet-list--views)))))
-  (switch-to-buffer (chaplet-list--buffer-name name))
+          (completing-read "View: "
+                           (mapcar #'symbol-name (chaplet-bd--view-names))
+                           nil t))))
+  (switch-to-buffer chaplet-list--buffer-name)
   (unless (eq major-mode 'chaplet-list-mode)
     (chaplet-list-mode))
   (setq chaplet-list--current-view name)
   (chaplet-list-refresh))
+
+(defun chaplet-list-graph ()
+  "Open the graph for the current list view (`s')."
+  (interactive)
+  (chaplet-graph chaplet-list--current-view))
 
 (defun chaplet-list-filter (type label)
   "Filter the current view by TYPE and/or LABEL (strings, nil to clear).
@@ -201,7 +195,7 @@ Both filters are composed into the view's bd query (server-side)."
 
 (chaplet-list--bind (kbd "RET") #'chaplet-list-open)
 (chaplet-list--bind (kbd "v") #'chaplet-list-set-view)
-(chaplet-list--bind (kbd "s") #'chaplet-graph)
+(chaplet-list--bind (kbd "s") #'chaplet-list-graph)
 (chaplet-list--bind (kbd "q") #'quit-window)
 (define-key chaplet-list-mode-map [mouse-1] #'chaplet-list-open)
 
