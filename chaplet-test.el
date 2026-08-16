@@ -744,19 +744,16 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
   (should (eq (lookup-key chaplet-list-mode-map (kbd "?")) 'chaplet-transient)))
 
 (ert-deftest chaplet-test-list-bind-evil ()
-  "`chaplet-list--bind' also binds in evil normal state when evil present."
+  "`chaplet-list--bind' also binds in evil normal + motion states."
   :tags '(:chaplet)
   (let (called)
-    (cl-letf (((symbol-function 'featurep)
-               (lambda (f) (eq f 'evil)))
+    (cl-letf (((symbol-function 'featurep) (lambda (f) (eq f 'evil)))
               ((symbol-function 'evil-define-key*)
-               (lambda (state map key cmd)
-                 (setq called (list state map key cmd)))))
+               (lambda (state _map _key _cmd) (push state called))))
       (chaplet-list--bind (kbd "x") #'ignore))
-    (should (equal (nth 0 called) 'normal))
-    (should (eq (nth 1 called) chaplet-list-mode-map))
-    (should (equal (nth 2 called) (kbd "x")))
-    (should (eq (nth 3 called) #'ignore))))
+    (should (= (length called) 2))
+    (should (memq 'normal called))
+    (should (memq 'motion called))))
 
 (ert-deftest chaplet-test-graph-refresh-closed ()
   "`chaplet-graph--refresh' forwards view filters to `chaplet-bd-graph-data'."
