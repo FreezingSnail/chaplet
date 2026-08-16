@@ -7,6 +7,7 @@
 (require 'chaplet-bd)
 
 (declare-function markdown-mode "markdown-mode" ())
+(declare-function chaplet--refresh-on-focus "chaplet-list" (window))
 
 (defvar-local chaplet-detail--id nil
   "Bead id shown by the current detail buffer.")
@@ -124,7 +125,13 @@ Return the active major mode symbol."
   "Minor mode for chaplet bead detail buffers.
 \\{chaplet-detail-mode-map}"
   :lighter " chaplet"
-  :keymap chaplet-detail-mode-map)
+  :keymap chaplet-detail-mode-map
+  (if chaplet-detail-mode
+      (when (boundp 'window-buffer-change-functions)
+        (add-hook 'window-buffer-change-functions
+                  #'chaplet--refresh-on-focus nil t))
+    (remove-hook 'window-buffer-change-functions
+                 #'chaplet--refresh-on-focus t)))
 
 ;;;###autoload
 (defun chaplet-detail (id)

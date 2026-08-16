@@ -70,6 +70,7 @@ safely when evil isn't loaded."
 (chaplet-graph--bind (kbd "q") #'quit-window)
 
 (declare-function chaplet-detail "chaplet-detail" (id))
+(declare-function chaplet--refresh-on-focus "chaplet-list" (window))
 
 (defvar chaplet-graph--node-bindings nil
   "Image-map event keys currently installed in `chaplet-graph-mode-map'.
@@ -438,7 +439,9 @@ called interactively)."
 (define-derived-mode chaplet-graph-mode special-mode "Chaplet-Graph"
   "Major mode for chaplet graph buffers (SVG image or text outline).
 \\{chaplet-graph-mode-map}"
-  (setq-local cursor-type nil))
+  (setq-local cursor-type nil)
+  (when (boundp 'window-buffer-change-functions)
+    (add-hook 'window-buffer-change-functions #'chaplet--refresh-on-focus nil t)))
 
 ;;;###autoload
 (defun chaplet-graph (&optional view)

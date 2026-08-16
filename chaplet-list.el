@@ -6,6 +6,7 @@
 
 (require 'chaplet-bd)
 (require 'chaplet-graph)
+(require 'chaplet-detail)
 (require 'tabulated-list)
 (require 'chaplet-face)
 (require 'chaplet-bar)
@@ -131,6 +132,58 @@ being listed, so the bar mirrors the real bindings.")
   (tabulated-list-init-header)
   (tabulated-list-print))
 
+(defcustom chaplet-auto-refresh t
+  "When non-nil, auto-refresh a chaplet buffer when it becomes visible.
+A chaplet list, detail, or graph buffer re-fetches from `bd' whenever it
+is shown in a window, so status changes made elsewhere (another session,
+the CLI, a subagent) are picked up without pressing `g'.  Write actions
+from chaplet itself always refresh every open view regardless of this
+option."
+  :type 'boolean
+  :group 'chaplet)
+
+(defun chaplet-refresh-aux-buffers ()
+  "Refresh every live chaplet detail and graph buffer.
+The list is refreshed separately (see `chaplet-refresh-all'); this
+handles the other views so a status change updates them in place."
+  (dolist (b (buffer-list))
+    (when (buffer-live-p b)
+      (with-current-buffer b
+        (cond
+         ((and (boundp 'chaplet-detail-mode) chaplet-detail-mode
+               (boundp 'chaplet-detail--id) chaplet-detail--id)
+          (ignore-errors (chaplet-detail--populate chaplet-detail--id)))
+         ((derived-mode-p 'chaplet-graph-mode)
+          (ignore-errors (chaplet-graph--refresh))))))))
+
+(defun chaplet-refresh-all ()
+  "Refresh every live chaplet buffer (list, detail, graph).
+Called after write actions so all open views reflect the new state
+automatically, without a manual `g'."
+  (interactive)
+  (let ((lb (get-buffer chaplet-list--buffer-name)))
+    (if (buffer-live-p lb)
+        (with-current-buffer lb
+          (when (derived-mode-p 'chaplet-list-mode)
+            (chaplet-list-refresh)))
+      (when (derived-mode-p 'chaplet-list-mode)
+        (chaplet-list-refresh))))
+  (chaplet-refresh-aux-buffers))
+
+(defun chaplet--refresh-on-focus (_window)
+  "Auto-refresh this chaplet buffer when it becomes visible in a window.
+Installed buffer-locally on `window-buffer-change-functions' (when
+available) so each chaplet buffer re-fetches from `bd' when shown,
+picking up status changes made elsewhere.  Gated by
+`chaplet-auto-refresh'."
+  (when (and chaplet-auto-refresh (buffer-live-p (current-buffer)))
+    (cond
+     ((derived-mode-p 'chaplet-list-mode) (chaplet-list-refresh))
+     ((derived-mode-p 'chaplet-graph-mode) (chaplet-graph--refresh))
+     ((and (boundp 'chaplet-detail-mode) chaplet-detail-mode
+           (boundp 'chaplet-detail--id) chaplet-detail--id)
+      (ignore-errors (chaplet-detail--populate chaplet-detail--id))))))
+
 (defun chaplet-list-open (id)
   "Open bead ID via `chaplet-detail' when present; else raw `bd show'."
   (interactive (list (tabulated-list-get-id)))
@@ -174,6 +227,8 @@ Both filters are composed into the view's bd query (server-side)."
   (setq tabulated-list-padding 2)
   (setq tabulated-list-sort-key '("ID" . nil))
   (add-hook 'tabulated-list-revert-hook #'chaplet-list-refresh nil t)
+  (when (boundp 'window-buffer-change-functions)
+    (add-hook 'window-buffer-change-functions #'chaplet--refresh-on-focus nil t))
   (hl-line-mode 1)
   (setq mode-line-process '(:eval (chaplet-list--modeline)))
   (face-remap-add-relative 'header-line '(chaplet-header header-line))

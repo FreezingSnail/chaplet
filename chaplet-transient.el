@@ -49,11 +49,9 @@ Open rows: comment/edit-design/new.  Everything else: comment only."
   "The `chaplet-list-mode' buffer the transient was opened from.")
 
 (defun chaplet-transient--refresh ()
-  "Refresh the originating list buffer, else the current buffer."
-  (if (buffer-live-p chaplet-transient--list-buffer)
-      (with-current-buffer chaplet-transient--list-buffer
-        (chaplet-list-refresh))
-    (chaplet-list-refresh)))
+  "Refresh all live chaplet buffers after a write action.
+See `chaplet-refresh-all'."
+  (chaplet-refresh-all))
 
 ;;; Actions
 
@@ -107,30 +105,36 @@ Rejection stays staged (a comment is added, the bead is not undeferred)."
     (chaplet-transient--refresh)))
 
 (defun chaplet-refresh ()
-  "Refresh the chaplet list."
+  "Refresh every live chaplet buffer (list, detail, graph)."
   (interactive)
-  (chaplet-list-refresh))
+  (chaplet-refresh-all))
 
 ;;; Detail-buffer delegation (id-taking, no list refresh)
 
 (defun chaplet-transient-approve (id)
   "Approve (undefer) bead ID and strip its staged label.
-Used by `chaplet-detail-approve'."
+Used by `chaplet-detail-approve'.  Refreshes all chaplet buffers so the
+list and detail pick up the status change."
   (interactive "sBead id: ")
   (chaplet-bd-undefer id)
-  (chaplet-bd-label-remove id chaplet-staged-label))
+  (chaplet-bd-label-remove id chaplet-staged-label)
+  (chaplet-refresh-all))
 
 (defun chaplet-transient-reject (id)
-  "Reject bead ID: prompt for feedback and comment \"rejected: <fb>\"."
+  "Reject bead ID: prompt for feedback and comment \"rejected: <fb>\".
+Refreshes all chaplet buffers afterwards."
   (interactive "sBead id: ")
   (let ((fb (read-string "Reject feedback: ")))
-    (chaplet-bd-comment id (format "rejected: %s" fb))))
+    (chaplet-bd-comment id (format "rejected: %s" fb)))
+  (chaplet-refresh-all))
 
 (defun chaplet-transient-comment (id)
-  "Comment on bead ID.  Used by `chaplet-detail-comment'."
+  "Comment on bead ID.  Used by `chaplet-detail-comment'.
+Refreshes all chaplet buffers afterwards."
   (interactive "sBead id: ")
   (let ((text (read-string "Comment: ")))
-    (chaplet-bd-comment id text)))
+    (chaplet-bd-comment id text))
+  (chaplet-refresh-all))
 
 ;;; Prefix
 

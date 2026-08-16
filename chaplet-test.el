@@ -400,13 +400,13 @@
 
 (ert-deftest chaplet-test-transient-approve ()
   "`chaplet-approve' undefer's the bead at point, strips the staged
-label, and refreshes."
+label, and refreshes all chaplet buffers."
   (let (undefer-id removed-id removed-label refreshed)
     (cl-letf (((symbol-function 'chaplet-bd-undefer)
                (lambda (id) (setq undefer-id id) t))
               ((symbol-function 'chaplet-bd-label-remove)
                (lambda (id label) (setq removed-id id removed-label label) t))
-              ((symbol-function 'chaplet-list-refresh)
+              ((symbol-function 'chaplet-refresh-all)
                (lambda () (setq refreshed t)))
               ((symbol-function 'chaplet-transient--id-at-point)
                (lambda () "bd-1")))
@@ -423,7 +423,7 @@ label, and refreshes."
                (lambda (&rest _) "needs work"))
               ((symbol-function 'chaplet-bd-comment)
                (lambda (id text) (setq commented-id id commented-text text) t))
-              ((symbol-function 'chaplet-list-refresh)
+              ((symbol-function 'chaplet-refresh-all)
                (lambda () nil))
               ((symbol-function 'chaplet-transient--id-at-point)
                (lambda () "bd-1")))
@@ -438,7 +438,7 @@ label, and refreshes."
                (lambda (&rest _) "looks good"))
               ((symbol-function 'chaplet-bd-comment)
                (lambda (id text) (setq commented-id id commented-text text) t))
-              ((symbol-function 'chaplet-list-refresh)
+              ((symbol-function 'chaplet-refresh-all)
                (lambda () nil))
               ((symbol-function 'chaplet-transient--id-at-point)
                (lambda () "bd-1")))
@@ -453,7 +453,7 @@ label, and refreshes."
                (lambda (&rest _) "the new design"))
               ((symbol-function 'chaplet-bd-update-design)
                (lambda (id design) (setq design-id id design-text design) t))
-              ((symbol-function 'chaplet-list-refresh)
+              ((symbol-function 'chaplet-refresh-all)
                (lambda () nil))
               ((symbol-function 'chaplet-transient--id-at-point)
                (lambda () "bd-1")))
@@ -473,35 +473,103 @@ label, and refreshes."
               ((symbol-function 'chaplet-bd-create)
                (lambda (title type desc)
                  (setq created (list title type desc)) "bd-99"))
-              ((symbol-function 'chaplet-list-refresh)
+              ((symbol-function 'chaplet-refresh-all)
                (lambda () nil)))
       (chaplet-new)
       (should (equal created '("my bead" "task" "the desc"))))))
 
 (ert-deftest chaplet-test-transient-refresh ()
-  "`chaplet-refresh' refreshes the list."
+  "`chaplet-refresh' refreshes all chaplet buffers."
   (let ((refreshed nil))
-    (cl-letf (((symbol-function 'chaplet-list-refresh)
+    (cl-letf (((symbol-function 'chaplet-refresh-all)
                (lambda () (setq refreshed t))))
       (chaplet-refresh)
       (should refreshed))))
+
+(ert-deftest chaplet-test-refresh-all-refreshes-every-view ()
+  "`chaplet-refresh-all' refreshes a live list, detail, and graph buffer."
+  (let (list-refreshed detail-refreshed graph-refreshed)
+    (with-current-buffer (get-buffer-create chaplet-list--buffer-name)
+      (chaplet-list-mode))
+    (unwind-protect
+        (progn
+          (cl-letf (((symbol-function 'chaplet-list-refresh)
+                     (lambda () (setq list-refreshed t)))
+                    ((symbol-function 'chaplet-detail--populate)
+                     (lambda (_id) (setq detail-refreshed t)))
+                    ((symbol-function 'chaplet-graph--refresh)
+                     (lambda () (setq graph-refreshed t))))
+            (with-current-buffer (get-buffer-create "*chaplet:detail:bd-1*")
+              (chaplet-detail-mode 1)
+              (setq-local chaplet-detail--id "bd-1"))
+            (with-current-buffer (get-buffer-create "*chaplet:graph*")
+              (chaplet-graph-mode))
+            (chaplet-refresh-all)
+            (should list-refreshed)
+            (should detail-refreshed)
+            (should graph-refreshed)))
+      (kill-buffer chaplet-list--buffer-name)
+      (kill-buffer "*chaplet:detail:bd-1*")
+      (kill-buffer "*chaplet:graph*"))))
+
+(ert-deftest chaplet-test-refresh-all-fallback-current-list ()
+  "Without a dedicated list buffer, `chaplet-refresh-all' refreshes the
+current buffer when it is a chaplet list."
+  (let ((refreshed nil))
+    (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil))
+              ((symbol-function 'chaplet-refresh-aux-buffers) (lambda () nil)))
+      (with-temp-buffer
+        (chaplet-list-mode)
+        (cl-letf (((symbol-function 'chaplet-list-refresh)
+                   (lambda () (setq refreshed t))))
+          (chaplet-refresh-all)
+          (should refreshed))))))
+
+(ert-deftest chaplet-test-refresh-on-focus ()
+  "`chaplet--refresh-on-focus' refreshes the current chaplet buffer."
+  (let ((chaplet-auto-refresh t)
+        (refreshed nil))
+    (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil))
+              ((symbol-function 'chaplet-list-refresh)
+               (lambda () (setq refreshed t))))
+      (with-temp-buffer
+        (chaplet-list-mode)
+        (setq refreshed nil)
+        (chaplet--refresh-on-focus (selected-window))
+        (should refreshed)))))
+
+(ert-deftest chaplet-test-refresh-on-focus-disabled ()
+  "`chaplet--refresh-on-focus' is a no-op when `chaplet-auto-refresh' is nil."
+  (let ((chaplet-auto-refresh nil)
+        (refreshed nil))
+    (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil))
+              ((symbol-function 'chaplet-list-refresh)
+               (lambda () (setq refreshed t))))
+      (with-temp-buffer
+        (chaplet-list-mode)
+        (setq refreshed nil)
+        (chaplet--refresh-on-focus (selected-window))
+        (should-not refreshed)))))
 
 (ert-deftest chaplet-test-transient-graph-delegates ()
   "`chaplet-graph' is fboundp (graph module); the menu delegates to it."
   (should (fboundp 'chaplet-graph)))
 
 (ert-deftest chaplet-test-transient-detail-approve ()
-  "`chaplet-transient-approve' undefer's an explicit id and strips the
-staged label, without refresh."
-  (let (undefer-id removed-id removed-label)
+  "`chaplet-transient-approve' undefer's an explicit id, strips the
+staged label, and refreshes all chaplet buffers."
+  (let (undefer-id removed-id removed-label refreshed)
     (cl-letf (((symbol-function 'chaplet-bd-undefer)
                (lambda (id) (setq undefer-id id) t))
               ((symbol-function 'chaplet-bd-label-remove)
-               (lambda (id label) (setq removed-id id removed-label label) t)))
+               (lambda (id label) (setq removed-id id removed-label label) t))
+              ((symbol-function 'chaplet-refresh-all)
+               (lambda () (setq refreshed t))))
       (chaplet-transient-approve "bd-7")
       (should (equal undefer-id "bd-7"))
       (should (equal removed-id "bd-7"))
-      (should (equal removed-label chaplet-staged-label)))))
+      (should (equal removed-label chaplet-staged-label))
+      (should refreshed))))
 
 (ert-deftest chaplet-test-entry-opens-inbox ()
   "`chaplet' opens the inbox (staged) view."

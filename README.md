@@ -12,6 +12,9 @@ theme-adaptive faces (dark and light).
 - Zero dependency on the tracker itself: it shells out to the `bd` CLI.
 - Evil-aware bindings (plain Emacs + `evil` normal/motion states).
 - Read-only buffers that suppress leaking single-char evil motions.
+- Auto-updates as tickets change: write actions refresh every open view,
+  and each view re-fetches from `bd` when it becomes visible (see
+  `chaplet-auto-refresh`).
 
 ---
 
@@ -129,6 +132,9 @@ navigable ASCII gutter-tree (same keys).
 (setq chaplet-graph--text-title-max 20) ; title truncation width
 (setq chaplet-graph--text-align nil)    ; right-pad gutters to align boxes
 (setq chaplet-graph--text-lane-max nil) ; cap gutter lanes (nil = unlimited)
+
+;; Auto-refresh (default t)
+(setq chaplet-auto-refresh nil)         ; don't re-fetch views on focus
 ```
 
 ## Architecture
