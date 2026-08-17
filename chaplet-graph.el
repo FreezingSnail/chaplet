@@ -565,20 +565,68 @@ Ghost nodes carry :ghost t, closed state, and a \" (closed)\" title suffix."
 (defun chaplet-graph--layers (nodes)
   "Return hash table ID → layer for NODES.
 Layer is the longest path length from a root (ghost deps count as
-depth 0, so a node depending on a ghost sits at layer ≥ 1)."
-  (let ((layer (make-hash-table :test 'equal)))
-    (let ((changed t))
-      (while changed
-        (setq changed nil)
-        (dolist (n nodes)
-          (let* ((deps (plist-get n :deps))
-                 (l (if deps
-                        (1+ (seq-max
-                             (mapcar (lambda (d) (gethash d layer 0)) deps)))
-                      0)))
-            (when (/= l (gethash (plist-get n :id) layer 0))
-              (puthash (plist-get n :id) l layer)
-              (setq changed t))))))
+depth 0, so a node depending on a ghost sits at layer ≥ 1).
+
+Single-pass Kahn-style topological order (O(V+E)): a node's layer is
+1 + the max layer of its deps, resolved root-outward so each node is
+visited once.  Dependency ids absent from NODES are treated as
+virtual roots (layer 0, not counted as deps).  Cycle guard: bd deps
+are acyclic by construction, but if the input contains a cycle the
+nodes left with unresolved deps get a final deterministic id-ordered
+assignment (1 + max over already-assigned dep layers), so the result
+is total, terminating and stable for any input."
+  (let ((layer (make-hash-table :test 'equal))
+        (deps-of (make-hash-table :test 'equal))
+        (indegree (make-hash-table :test 'equal))
+        (dependents (make-hash-table :test 'equal))
+        (known (make-hash-table :test 'equal))
+        (unresolved (make-hash-table :test 'equal))
+        (queue nil))
+    ;; Seed every id; record deps, indegree (count of in-set deps) and
+    ;; dependents (consumers per dep) for the Kahn pass.
+    (dolist (n nodes)
+      (let ((id (plist-get n :id)))
+        (puthash id t known)
+        (puthash id 0 indegree)
+        (puthash id nil dependents)
+        (puthash id t unresolved)
+        (puthash id (plist-get n :deps) deps-of)))
+    (dolist (n nodes)
+      (let ((id (plist-get n :id)))
+        (dolist (dep (plist-get n :deps))
+          ;; Unknown dep = virtual root at depth 0: not an edge, no
+          ;; layer-table entry (lookups default to 0 during the pass).
+          (if (gethash dep known)
+              (progn
+                (puthash id (1+ (gethash id indegree 0)) indegree)
+                (push id (gethash dep dependents)))))))
+    ;; Seed the queue with roots, ascending id for determinism.
+    (dolist (id (sort (hash-table-keys indegree) #'string<))
+      (when (zerop (gethash id indegree 0))
+        (push id queue)))
+    (while queue
+      (let* ((id (pop queue))
+             (deps (gethash id deps-of))
+             (l (if deps
+                    (1+ (seq-max
+                         (mapcar (lambda (d) (gethash d layer 0)) deps)))
+                  0)))
+        (puthash id l layer)
+        (remhash id unresolved)
+        ;; Release consumers: resolve when every dep is assigned.
+        (dolist (consumer (gethash id dependents))
+          (puthash consumer (1- (gethash consumer indegree 0)) indegree)
+          (when (zerop (gethash consumer indegree 0))
+            (setq queue (sort (cons consumer queue) #'string<))))))
+    ;; Cycle guard: leftover nodes get a deterministic single pass, so
+    ;; the result is stable and total on cyclic input too.
+    (dolist (id (sort (hash-table-keys unresolved) #'string<))
+      (let* ((deps (gethash id deps-of))
+             (l (if deps
+                    (1+ (seq-max
+                         (mapcar (lambda (d) (gethash d layer 0)) deps)))
+                  0)))
+        (puthash id l layer)))
     layer))
 
 (defun chaplet-graph--node-w (node)

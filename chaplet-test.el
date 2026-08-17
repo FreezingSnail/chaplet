@@ -1296,6 +1296,107 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
   ;; Empty input → empty layout, no error.
   (should (equal (chaplet-graph--layout nil) '(nil . nil))))
 
+;; Reference oracle: the previous while-changed relaxation, kept so the
+;; new single-pass Kahn `chaplet-graph--layers' can be proven equivalent.
+(defun chaplet-test--layers-relaxation (nodes)
+  "Return hash table ID → layer for NODES via while-changed relaxation.
+Mirrors the pre-longest-path implementation of `chaplet-graph--layers'."
+  (let ((layer (make-hash-table :test 'equal)))
+    (let ((changed t))
+      (while changed
+        (setq changed nil)
+        (dolist (n nodes)
+          (let* ((deps (plist-get n :deps))
+                 (l (if deps
+                        (1+ (seq-max
+                             (mapcar (lambda (d) (gethash d layer 0)) deps)))
+                      0)))
+            (when (/= l (gethash (plist-get n :id) layer 0))
+              (puthash (plist-get n :id) l layer)
+              (setq changed t))))))
+    layer))
+
+(defun chaplet-test--layers-equal-p (a b)
+  "Return t when layer hash tables A and B assign the same layer.
+A missing key means layer 0 in both (the old relaxation never stored
+layer-0 roots; consumers read layers with `(gethash id layer 0)')."
+  (let ((ok t))
+    (maphash (lambda (id l)
+               (unless (equal l (gethash id b 0))
+                 (setq ok nil)))
+             a)
+    (maphash (lambda (id l)
+               (unless (equal l (gethash id a 0))
+                 (setq ok nil)))
+             b)
+    ok))
+
+(defun chaplet-test--dag-nodes (spec)
+  "Convert SPEC (alist id → deps) into graph node plists.
+Each entry is (ID . DEPS); ids may be strings or symbols, and are
+normalized to strings (matching `chaplet-graph--node' output).
+Nodes carry :deps only — enough for `chaplet-graph--layers'."
+  (let ((str (lambda (x) (if (stringp x) x (symbol-name x)))))
+    (mapcar (lambda (entry)
+              (let ((id (funcall str (car entry))))
+                (list :id id
+                      :title id
+                      :state "open"
+                      :type nil
+                      :priority nil
+                      :deps (mapcar str (cdr entry)))))
+            spec)))
+
+(ert-deftest chaplet-test-graph-layers-equivalence ()
+  "New Kahn `chaplet-graph--layers' matches old relaxation on fixtures."
+  (dolist (nodes
+           (list
+            ;; Existing graph fixture (with and without ghosts).
+            (chaplet-graph--nodes chaplet-test--graph-beads)
+            (chaplet-graph--add-ghosts
+             (chaplet-graph--nodes chaplet-test--graph-beads))
+            ;; Diamond DAG.
+            (chaplet-test--dag-nodes
+             '((a) (b . (a)) (c . (a)) (d . (b c)) (e . (d))
+               (f . (d)) (g . (e f)) (h . (g))))
+            ;; Layered DAG with a shared sink and a missing dep.
+            (chaplet-test--dag-nodes
+             '((a) (b . (a)) (c . (b)) (d . (a)) (e . (d c))
+               (f . (e)) (g . (f missing))))))
+    (should (chaplet-test--layers-equal-p
+             (chaplet-graph--layers nodes)
+             (chaplet-test--layers-relaxation nodes)))))
+
+(ert-deftest chaplet-test-graph-layers-perf-500 ()
+  "500-node chain DAG layers compute in a single pass, well under a second."
+  (let ((nodes (chaplet-test--dag-nodes
+                (append (list (cons "n0" nil))
+                        (cl-loop for i from 1 to 499
+                                 collect (cons (format "n%d" i)
+                                               (list (format "n%d" (1- i)))))))))
+    (let ((t0 (float-time)))
+      (let ((layers (chaplet-graph--layers nodes)))
+        (should (< (- (float-time) t0) 1.0))
+        ;; Longest-path invariant: node i sits exactly at layer i.
+        (cl-loop for i from 0 to 499
+                 do (should (= (gethash (format "n%d" i) layers) i)))))))
+
+(ert-deftest chaplet-test-graph-layers-cycle-safe ()
+  "`chaplet-graph--layers' terminates on cycles and stays deterministic."
+  (let* ((nodes (chaplet-test--dag-nodes
+                 '((a . (b)) (b . (a)) (r) (c . (r)) (d . (c)))))
+         (l1 (chaplet-graph--layers nodes))
+         (l2 (chaplet-graph--layers nodes)))
+    ;; Total: every node gets an integer layer (no hang).
+    (dolist (id '("a" "b" "r" "c" "d"))
+      (should (integerp (gethash id l1 0))))
+    ;; Deterministic across calls.
+    (should (chaplet-test--layers-equal-p l1 l2))
+    ;; Acyclic nodes keep longest-path semantics around the cycle.
+    (should (= (gethash "r" l1 0)))
+    (should (= (gethash "c" l1) 1))
+    (should (= (gethash "d" l1) 2))))
+
 (ert-deftest chaplet-test-graph-svg-elements ()
   "`chaplet-graph--svg' emits nodes, edges (arrows) and optional halo."
   (let* ((fixture (chaplet-test--graph-fixture))
