@@ -245,18 +245,41 @@
               'chaplet-list-open)))
 
 (ert-deftest chaplet-test-list-buffer-style ()
-  "`chaplet-list-mode' enables hl-line, sets mode-line-process, remaps header."
+  "`chaplet-list-mode' enables hl-line, sets a plain-string modeline, remaps header."
   (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))
     (with-temp-buffer
       (chaplet-list-mode)
       (should (bound-and-true-p hl-line-mode))
-      (should (equal mode-line-process '(:eval (chaplet-list--modeline))))
+      (should (stringp mode-line-process))
+      (should (string-match-p "^chaplet inbox" mode-line-process))
+      (should (equal mode-line-process chaplet-list--modeline-string))
       (let ((repl (cdr (assq 'header-line face-remapping-alist))))
         (should repl)
         (should (cl-some (lambda (f) (or (eq f 'chaplet-header)
-                                         (and (consp f)
-                                              (memq 'chaplet-header f))))
+                                          (and (consp f)
+                                               (memq 'chaplet-header f))))
                          repl))))))
+
+(ert-deftest chaplet-test-list-refresh-caches-modeline ()
+  "`chaplet-list-refresh' computes counts once into a cached plain string
+and points `mode-line-process' at it (no per-redisplay :eval)."
+  (cl-letf (((symbol-function 'chaplet-list--fetch)
+             (lambda (_view)
+               (list '((id . "bd-1") (title . "one") (status . "open"))
+                     '((id . "bd-2") (title . "two") (status . "open"))
+                     '((id . "bd-3") (title . "three") (status . "blocked"))
+                     '((id . "bd-4") (title . "four") (status . "closed"))))))
+    (with-temp-buffer
+      (chaplet-list-mode)
+      (setq chaplet-list--current-view 'all)
+      (chaplet-list-refresh)
+      (should (stringp chaplet-list--modeline-string))
+      (should (stringp mode-line-process))
+      (should (equal mode-line-process chaplet-list--modeline-string))
+      (should (string-match-p "chaplet all" chaplet-list--modeline-string))
+      (should (string-match-p "4 beads" chaplet-list--modeline-string))
+      (should (string-match-p "2 open" chaplet-list--modeline-string))
+      (should (string-match-p "1 blocked" chaplet-list--modeline-string)))))
 
 (ert-deftest chaplet-test-list-open-delegates ()
   "`chaplet-list-open' calls `chaplet-detail' when defined."

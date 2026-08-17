@@ -83,6 +83,12 @@ State → pill face, P → priority dot+number, Type → type face, Staged → �
              "")
            (or (alist-get 'title bead) "")))))
 
+(defvar-local chaplet-list--modeline-string nil
+  "Cached mode-line string for the current chaplet list buffer.
+Computed once in `chaplet-list-refresh' (not per redisplay) so the
+modeline pays no per-frame allocation cost.  `chaplet-list--modeline'
+remains the pure recomputation helper.")
+
 (defun chaplet-list--modeline ()
   "Return a mode-line string for the chaplet bead browser.
 Format: \"chaplet <view> · <n> beads · <o> open · <b> blocked\".
@@ -129,6 +135,8 @@ being listed, so the bar mirrors the real bindings.")
   (setq tabulated-list-entries
         (mapcar #'chaplet-list--entry
                 (chaplet-list--fetch chaplet-list--current-view)))
+  (setq chaplet-list--modeline-string (chaplet-list--modeline))
+  (setq mode-line-process chaplet-list--modeline-string)
   (tabulated-list-init-header)
   (tabulated-list-print)
   (chaplet--mark-fetch))
@@ -267,7 +275,7 @@ Both filters are composed into the view's bd query (server-side)."
   (when (boundp 'window-buffer-change-functions)
     (add-hook 'window-buffer-change-functions #'chaplet--refresh-on-focus nil t))
   (hl-line-mode 1)
-  (setq mode-line-process '(:eval (chaplet-list--modeline)))
+  (setq mode-line-process chaplet-list--modeline-string)
   (face-remap-add-relative 'header-line '(chaplet-header header-line))
   (setq-local chaplet-bar--map chaplet-list-mode-map)
   (setq-local chaplet-bar--specs chaplet-list--bar-specs)
