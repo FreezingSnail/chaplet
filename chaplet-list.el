@@ -130,7 +130,8 @@ being listed, so the bar mirrors the real bindings.")
         (mapcar #'chaplet-list--entry
                 (chaplet-list--fetch chaplet-list--current-view)))
   (tabulated-list-init-header)
-  (tabulated-list-print))
+  (tabulated-list-print)
+  (chaplet--mark-fetch))
 
 (defcustom chaplet-auto-refresh t
   "When non-nil, auto-refresh a chaplet buffer when it becomes visible.
@@ -141,6 +142,32 @@ from chaplet itself always refresh every open view regardless of this
 option."
   :type 'boolean
   :group 'chaplet)
+
+(defcustom chaplet-refresh-delay 2
+  "Minimum seconds between a fetch and a focus-triggered re-fetch.
+`chaplet--refresh-on-focus' skips when the buffer's last fetch
+(`chaplet--last-fetch') is newer than this many seconds, so an
+explicit refresh (e.g. `chaplet-list-set-view') is not doubled by
+the `window-buffer-change-functions' hook.  Buffers whose last fetch
+is older (already stale) still refresh on focus."
+  :type 'number
+  :group 'chaplet)
+
+(defvar-local chaplet--last-fetch nil
+  "Wall-clock timestamp of the last bd fetch in this chaplet buffer.
+Set by `chaplet--mark-fetch' on every fetch; consulted by
+`chaplet--refresh-on-focus' to debounce the focus hook.")
+
+(defun chaplet--mark-fetch ()
+  "Record the current time as this buffer's last bd fetch."
+  (setq chaplet--last-fetch (current-time)))
+
+(defun chaplet--focus-stale-p ()
+  "Return non-nil when this buffer needs a focus refresh: never fetched,
+or last fetched more than `chaplet-refresh-delay' seconds ago."
+  (or (null chaplet--last-fetch)
+      (time-less-p (time-add chaplet--last-fetch chaplet-refresh-delay)
+                   (current-time))))
 
 (defun chaplet-refresh-aux-buffers ()
   "Refresh every live chaplet detail and graph buffer.
@@ -175,8 +202,12 @@ automatically, without a manual `g'."
 Installed buffer-locally on `window-buffer-change-functions' (when
 available) so each chaplet buffer re-fetches from `bd' when shown,
 picking up status changes made elsewhere.  Gated by
-`chaplet-auto-refresh'."
-  (when (and chaplet-auto-refresh (buffer-live-p (current-buffer)))
+`chaplet-auto-refresh' and debounced by `chaplet-refresh-delay':
+a buffer whose last fetch (`chaplet--last-fetch') is recent is
+skipped, since the view switch that showed it already refreshed."
+  (when (and chaplet-auto-refresh
+             (buffer-live-p (current-buffer))
+             (chaplet--focus-stale-p))
     (cond
      ((derived-mode-p 'chaplet-list-mode) (chaplet-list-refresh))
      ((derived-mode-p 'chaplet-graph-mode) (chaplet-graph--refresh))
@@ -192,17 +223,23 @@ picking up status changes made elsewhere.  Gated by
     (chaplet-list--show-raw id)))
 
 (defun chaplet-list-set-view (name)
-  "Switch the bead browser to view NAME (a symbol)."
+  "Switch the bead browser to view NAME (a symbol).
+Prepares the shared `*chaplet*' buffer (running `chaplet-list-mode'
+when fresh — its init fetches the view) before showing it, so the
+`chaplet--refresh-on-focus' hook that fires on display sees a fresh
+`chaplet--last-fetch' and skips: exactly one bd fetch per call."
   (interactive
    (list (intern
           (completing-read "View: "
                            (mapcar #'symbol-name (chaplet-bd--view-names))
                            nil t))))
-  (switch-to-buffer chaplet-list--buffer-name)
-  (unless (eq major-mode 'chaplet-list-mode)
-    (chaplet-list-mode))
-  (setq chaplet-list--current-view name)
-  (chaplet-list-refresh))
+  (let ((buf (get-buffer-create chaplet-list--buffer-name)))
+    (with-current-buffer buf
+      (setq chaplet-list--current-view name)
+      (if (eq major-mode 'chaplet-list-mode)
+          (chaplet-list-refresh)
+        (chaplet-list-mode)))
+    (switch-to-buffer buf)))
 
 (defun chaplet-list-graph ()
   "Open the graph for the current list view (`s')."

@@ -537,8 +537,9 @@ current buffer when it is a chaplet list."
           (chaplet-refresh-all)
           (should refreshed))))))
 
-(ert-deftest chaplet-test-refresh-on-focus ()
-  "`chaplet--refresh-on-focus' refreshes the current chaplet buffer."
+(ert-deftest chaplet-test-refresh-on-focus-stale ()
+  "`chaplet--refresh-on-focus' refreshes when last fetch is older than
+`chaplet-refresh-delay' (stale buffer picked up on return)."
   (let ((chaplet-auto-refresh t)
         (refreshed nil))
     (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil))
@@ -546,6 +547,37 @@ current buffer when it is a chaplet list."
                (lambda () (setq refreshed t))))
       (with-temp-buffer
         (chaplet-list-mode)
+        (setq-local chaplet--last-fetch
+                    (time-subtract (current-time) 10))
+        (setq refreshed nil)
+        (chaplet--refresh-on-focus (selected-window))
+        (should refreshed)))))
+
+(ert-deftest chaplet-test-refresh-on-focus-recent ()
+  "`chaplet--refresh-on-focus' skips a buffer fetched less than
+`chaplet-refresh-delay' seconds ago."
+  (let ((chaplet-auto-refresh t)
+        (refreshed nil))
+    (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil))
+              ((symbol-function 'chaplet-list-refresh)
+               (lambda () (setq refreshed t))))
+      (with-temp-buffer
+        (chaplet-list-mode)
+        (chaplet--mark-fetch)
+        (setq refreshed nil)
+        (chaplet--refresh-on-focus (selected-window))
+        (should-not refreshed)))))
+
+(ert-deftest chaplet-test-refresh-on-focus-never-fetched ()
+  "A chaplet buffer that has never fetched is stale, so focus refreshes."
+  (let ((chaplet-auto-refresh t)
+        (refreshed nil))
+    (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil))
+              ((symbol-function 'chaplet-list-refresh)
+               (lambda () (setq refreshed t))))
+      (with-temp-buffer
+        (chaplet-list-mode)
+        (setq-local chaplet--last-fetch nil)
         (setq refreshed nil)
         (chaplet--refresh-on-focus (selected-window))
         (should refreshed)))))
@@ -559,9 +591,56 @@ current buffer when it is a chaplet list."
                (lambda () (setq refreshed t))))
       (with-temp-buffer
         (chaplet-list-mode)
+        (setq-local chaplet--last-fetch
+                    (time-subtract (current-time) 10))
         (setq refreshed nil)
         (chaplet--refresh-on-focus (selected-window))
         (should-not refreshed)))))
+
+(ert-deftest chaplet-test-refresh-marks-fetch ()
+  "Every list refresh stamps `chaplet--last-fetch' in the buffer."
+  (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))
+(with-temp-buffer
+        (chaplet-list-mode)
+        (let ((first chaplet--last-fetch))
+          (should first)                    ; mode init fetched + marked
+          (sleep-for 0.01)
+          (chaplet-list-refresh)
+          (should (time-less-p first chaplet--last-fetch))))))
+
+(ert-deftest chaplet-test-detail-populate-marks-fetch ()
+  "`chaplet-detail--populate' stamps `chaplet--last-fetch' in the buffer."
+  (cl-letf (((symbol-function 'chaplet-bd-show)
+             (lambda (_id) '((id . "bd-1") (title . "one"))))
+            ((symbol-function 'chaplet-bd-comments)
+             (lambda (_id) nil)))
+    (with-temp-buffer
+      (chaplet-detail--populate "bd-1")
+      (should chaplet--last-fetch))))
+
+(ert-deftest chaplet-test-graph-refresh-marks-fetch ()
+  "`chaplet-graph--refresh' stamps `chaplet--last-fetch' in the buffer."
+  (cl-letf (((symbol-function 'chaplet-bd-graph-data)
+             (lambda (_filters) nil)))
+    (with-temp-buffer
+      (setq-local chaplet-graph--view 'all)
+      (chaplet-graph--refresh)
+      (should chaplet--last-fetch))))
+
+(ert-deftest chaplet-test-list-set-view-single-fetch ()
+  "`chaplet-list-set-view' triggers exactly one bd fetch: the focus hook
+that fires when the buffer is shown is debounced by `chaplet--last-fetch'."
+  :tags '(:chaplet)
+  (let ((fetches 0))
+    (cl-letf (((symbol-function 'chaplet-bd-query)
+               (lambda (_q) (cl-incf fetches) nil)))
+      (unwind-protect
+          (progn
+            (chaplet-list-set-view 'inbox)
+            (should (= fetches 1))
+            (chaplet-list-set-view 'open)
+            (should (= fetches 2)))
+        (kill-buffer "*chaplet*")))))
 
 (ert-deftest chaplet-test-transient-graph-delegates ()
   "`chaplet-graph' is fboundp (graph module); the menu delegates to it."

@@ -8,6 +8,7 @@
 
 (declare-function markdown-mode "markdown-mode" ())
 (declare-function chaplet--refresh-on-focus "chaplet-list" (window))
+(declare-function chaplet--mark-fetch "chaplet-list" ())
 
 (defvar-local chaplet-detail--id nil
   "Bead id shown by the current detail buffer.")
@@ -79,7 +80,8 @@ Return the active major mode symbol."
       (erase-buffer)
       (insert (chaplet-detail--render
                (cons (cons 'comments (chaplet-bd-comments id)) bead)))
-      (goto-char (point-min)))))
+      (goto-char (point-min)))
+    (chaplet--mark-fetch)))
 
 (defun chaplet-detail-quit ()
   "Quit the detail buffer, returning to the previous buffer."

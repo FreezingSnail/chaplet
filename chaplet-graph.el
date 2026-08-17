@@ -71,6 +71,7 @@ safely when evil isn't loaded."
 
 (declare-function chaplet-detail "chaplet-detail" (id))
 (declare-function chaplet--refresh-on-focus "chaplet-list" (window))
+(declare-function chaplet--mark-fetch "chaplet-list" ())
 
 (defvar chaplet-graph--node-bindings nil
   "Image-map event keys currently installed in `chaplet-graph-mode-map'.
@@ -364,7 +365,8 @@ Preserves `chaplet-graph--focus-id' when the focused node still exists."
                    (when (member keep-focus
                                  (mapcar (lambda (n) (plist-get n :id)) nodes))
                      keep-focus))
-        (chaplet-graph--render nodes edges chaplet-graph--focus-id)))))
+        (chaplet-graph--render nodes edges chaplet-graph--focus-id)))
+    (chaplet--mark-fetch)))
 
 (defun chaplet-graph-set-view (name)
   "Switch the graph view to NAME, then re-render.
