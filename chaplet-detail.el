@@ -12,6 +12,9 @@
 (defvar-local chaplet-detail--id nil
   "Bead id shown by the current detail buffer.")
 
+(defconst chaplet-detail--buffer-name "*chaplet:detail*"
+  "Single shared detail buffer; reused for every bead.")
+
 ;;; Rendering (pure)
 
 (defun chaplet-detail--render-header (bead)
@@ -120,6 +123,22 @@ Return the active major mode symbol."
     map)
   "Keymap for `chaplet-detail-mode'.")
 
+(defun chaplet-detail--bind (key cmd)
+  "Bind KEY to CMD in `chaplet-detail-mode-map'.
+Mirrors `chaplet-list--bind': also binds in evil normal and motion
+states (so motion keys are usable there).  Uses the evil-define-key*
+*function* (not the evil-define-key macro) so this file byte-compiles
+safely when evil isn't installed."
+  (when (and (featurep 'evil) (fboundp 'evil-define-key*))
+    (evil-define-key* 'normal chaplet-detail-mode-map key cmd)
+    (evil-define-key* 'motion chaplet-detail-mode-map key cmd)))
+
+(chaplet-detail--bind (kbd "q") #'chaplet-detail-quit)
+(chaplet-detail--bind (kbd "g") #'chaplet-detail-refresh)
+(chaplet-detail--bind (kbd "c") #'chaplet-detail-comment)
+(chaplet-detail--bind (kbd "a") #'chaplet-detail-approve)
+(chaplet-detail--bind (kbd "r") #'chaplet-detail-reject)
+
 ;;;###autoload
 (define-minor-mode chaplet-detail-mode
   "Minor mode for chaplet bead detail buffers.
@@ -135,12 +154,15 @@ Return the active major mode symbol."
 
 ;;;###autoload
 (defun chaplet-detail (id)
-  "Show bead ID in a read-only markdown detail buffer."
+  "Show bead ID in the shared read-only markdown detail buffer.
+Reuses `chaplet-detail--buffer-name' so viewing tickets never leaks
+a new orphan buffer per bead."
   (interactive "sBead id: ")
-  (let ((buf (get-buffer-create (format "*chaplet:detail:%s*" id))))
+  (let ((buf (get-buffer-create chaplet-detail--buffer-name)))
     (with-current-buffer buf
-      (chaplet-detail--activate-major-mode)
-      (chaplet-detail-mode 1)
+      (unless (bound-and-true-p chaplet-detail-mode)
+        (chaplet-detail--activate-major-mode)
+        (chaplet-detail-mode 1))
       (setq-local chaplet-detail--id id)
       (chaplet-detail--populate id)
       (read-only-mode 1))

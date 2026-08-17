@@ -340,7 +340,7 @@
   "`chaplet-detail' builds a read-only buffer with rendered markdown."
   (let ((chaplet-bd-program chaplet-test--fake-bd))
     (chaplet-detail "bd-1")
-    (should (equal (buffer-name) "*chaplet:detail:bd-1*"))
+    (should (equal (buffer-name) chaplet-detail--buffer-name))
     (should buffer-read-only)
     (should (string-match-p "# one" (buffer-string)))
     (should (string-match-p "## Description" (buffer-string)))
@@ -349,6 +349,18 @@
     (should (string-match-p "## Comments" (buffer-string)))
     (should (string-match-p "- \\*\\*alice\\*\\* — nice bead" (buffer-string)))
     (kill-buffer)))
+
+(ert-deftest chaplet-test-detail-buffer-reused ()
+  "`chaplet-detail' reuses one shared buffer for every bead."
+  (let ((chaplet-bd-program chaplet-test--fake-bd))
+    (chaplet-detail "bd-1")
+    (let ((win (selected-window)))
+      (chaplet-detail "bd-2")
+      (should (eq (selected-window) win))
+      (should (equal (buffer-name) chaplet-detail--buffer-name))
+      (should (string-match-p "# two" (buffer-string)))
+      (should-not (string-match-p "# one" (buffer-string))))
+    (kill-buffer chaplet-detail--buffer-name)))
 
 (ert-deftest chaplet-test-detail-mode-no-markdown ()
   "Mode falls back to fundamental + font-lock without markdown-mode."
@@ -499,7 +511,7 @@ label, and refreshes all chaplet buffers."
                      (lambda (_id) (setq detail-refreshed t)))
                     ((symbol-function 'chaplet-graph--refresh)
                      (lambda () (setq graph-refreshed t))))
-            (with-current-buffer (get-buffer-create "*chaplet:detail:bd-1*")
+            (with-current-buffer (get-buffer-create chaplet-detail--buffer-name)
               (chaplet-detail-mode 1)
               (setq-local chaplet-detail--id "bd-1"))
             (with-current-buffer (get-buffer-create "*chaplet:graph*")
@@ -509,7 +521,7 @@ label, and refreshes all chaplet buffers."
             (should detail-refreshed)
             (should graph-refreshed)))
       (kill-buffer chaplet-list--buffer-name)
-      (kill-buffer "*chaplet:detail:bd-1*")
+      (kill-buffer chaplet-detail--buffer-name)
       (kill-buffer "*chaplet:graph*"))))
 
 (ert-deftest chaplet-test-refresh-all-fallback-current-list ()
