@@ -1381,10 +1381,15 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
 ;;; chaplet-graph buffer + navigation tests (design §7.4, uvy.5)
 
 (ert-deftest chaplet-test-graph-focus-cycle ()
-  "`chaplet-graph--focus-next'/'--focus-prev' cycle focus and re-render."
+  "`chaplet-graph--focus-next'/'--focus-prev' cycle focus via `chaplet-graph--focus-set'."
   (let ((rendered nil))
-    (cl-letf (((symbol-function 'chaplet-graph--render)
-               (lambda (_nodes _edges focus) (setq rendered focus))))
+    (cl-letf (((symbol-function 'chaplet-graph--focus-set)
+               (lambda (focus)
+                 ;; Real `chaplet-graph--focus-set' updates the buffer var
+                 ;; too; the spy must mirror that or position tracking in
+                 ;; `chaplet-graph--focus-relative' loses the focus.
+                 (setq rendered focus)
+                 (setq-local chaplet-graph--focus-id focus))))
       (with-temp-buffer
         (let* ((f (chaplet-test--graph-fixture))
                (ids (mapcar (lambda (n) (plist-get n :id)) (car f))))
@@ -1427,8 +1432,12 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
 (ert-deftest chaplet-test-graph-jump ()
   "`chaplet-graph--jump-deps'/'--jump-dependents' move focus along edges."
   (let ((rendered nil))
-    (cl-letf (((symbol-function 'chaplet-graph--render)
-               (lambda (_nodes _edges focus) (setq rendered focus))))
+    (cl-letf (((symbol-function 'chaplet-graph--focus-set)
+               (lambda (focus)
+                 ;; Mirror the real focus-set's buffer-var update (see
+                 ;; `chaplet-test-graph-focus-cycle').
+                 (setq rendered focus)
+                 (setq-local chaplet-graph--focus-id focus))))
       (with-temp-buffer
         (let ((f (chaplet-test--graph-fixture)))
           (setq-local chaplet-graph--nodes (car f))
@@ -1442,6 +1451,66 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
           (chaplet-graph--jump-dependents)
           (should (equal chaplet-graph--focus-id "bd-2"))
           (should (equal rendered "bd-2")))))))
+
+(ert-deftest chaplet-test-graph-focus-no-rebind ()
+  "n/p/d/f move focus without rebinding node events or re-layouting.
+Spies on `chaplet-graph--bind-node-events' and `chaplet-graph--layout':
+these run only on a full `chaplet-graph--render' (node set change),
+never on focus moves."
+  (let ((binds 0) (layouts 0)
+        ;; Capture before cl-letf: building the fixture calls the real
+        ;; layout, which must not recurse into the spy.
+        (orig-layout (symbol-function 'chaplet-graph--layout)))
+    (with-temp-buffer
+      (let ((f (chaplet-test--graph-fixture)))
+        (setq-local chaplet-graph--nodes (car f))
+        (setq-local chaplet-graph--edges (cdr f))
+        (setq-local chaplet-graph--focus-id "bd-2")
+        (setq-local chaplet-graph--text-mode t)
+        (cl-letf (((symbol-function 'display-images-p) (lambda () nil))
+                  ((symbol-function 'chaplet-graph--bind-node-events)
+                   (lambda (_nodes) (cl-incf binds)))
+                  ((symbol-function 'chaplet-graph--layout)
+                   (lambda (nodes) (cl-incf layouts)
+                     (funcall orig-layout nodes))))
+          ;; n/p cycle still works and pays no full render.
+          (chaplet-graph--focus-next)
+          (should (equal chaplet-graph--focus-id "bd-3"))
+          (chaplet-graph--focus-prev)
+          (should (equal chaplet-graph--focus-id "bd-2"))
+          ;; f jumps to a dependency of bd-2.
+          (chaplet-graph--jump-deps)
+          (should (equal chaplet-graph--focus-id "bd-1"))
+          ;; d jumps to a dependent of bd-1.
+          (chaplet-graph--jump-dependents)
+          (should (equal chaplet-graph--focus-id "bd-2"))
+          (should (= binds 0))
+          (should (= layouts 0)))))))
+
+(ert-deftest chaplet-test-graph-focus-image-redraw ()
+  "Image-mode focus moves regenerate the SVG and replace the image in
+place without rebinding node events."
+  (let ((binds 0) (imgs 0))
+    (cl-letf (((symbol-function 'display-images-p) (lambda () t))
+              ((symbol-function 'svg-image)
+               (lambda (&rest _) (cl-incf imgs) '(image :type svg :data "")))
+              ((symbol-function 'chaplet-graph--bind-node-events)
+               (lambda (_nodes) (cl-incf binds))))
+      (with-temp-buffer
+        (let ((f (chaplet-test--graph-fixture)))
+          ;; Full render installs bindings once and inserts one image.
+          (chaplet-graph--render (car f) (cdr f) nil)
+          (should (= binds 1))
+          (should (= imgs 1))
+          (should-not chaplet-graph--text-mode)
+          (let ((before (buffer-size)))
+            ;; n regenerates only the SVG image, no event rebinding.
+            (chaplet-graph--focus-next)
+            (should (equal chaplet-graph--focus-id "bd-1"))
+            (should (= imgs 2))
+            (should (= binds 1))
+            (should (= (buffer-size) before)))
+          (kill-buffer (current-buffer)))))))
 
 (ert-deftest chaplet-test-graph-text-fallback ()
   "Render falls back to a navigable gutter-tree text without images."

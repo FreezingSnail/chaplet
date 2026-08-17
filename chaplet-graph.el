@@ -315,15 +315,25 @@ from `chaplet-face' (id/state/staged).  Same keys as the image render
         (insert s "\n")))
     (goto-char (point-min))))
 
+(defun chaplet-graph--image (nodes edges focus-id)
+  "Return an SVG image spec for NODES/EDGES with the FOCUS-ID halo.
+Returns nil when inline images are unavailable.  The image carries
+the clickable `:map' hot-spots built from NODES."
+  (and (chaplet-graph--image-available-p)
+       (svg-image (chaplet-graph--svg nodes edges focus-id)
+                  :map (chaplet-graph--image-map nodes))))
+
 (defun chaplet-graph--render (nodes edges focus-id)
-  "Render NODES/EDGES into the current buffer.
+  "Render NODES/EDGES into the current buffer (full install).
 Uses an inline SVG image with clickable `:map' hot-spots when images
 are available; otherwise falls back to `chaplet-graph--text-render'.
-Returns the current buffer."
+Installs per-node mouse bindings, stores NODES/EDGES/FOCUS-ID,
+(re)installs the mode-line and bar, and returns the current buffer.
+Focus-only moves should call `chaplet-graph--focus-set' instead —
+this function re-binds node events and reinstalls the bar, which
+only matters when the node set changes."
   (let ((inhibit-read-only t)
-        (image (and (chaplet-graph--image-available-p)
-                    (svg-image (chaplet-graph--svg nodes edges focus-id)
-                               :map (chaplet-graph--image-map nodes)))))
+        (image (chaplet-graph--image nodes edges focus-id)))
     (chaplet-graph--bind-node-events nodes)
     (erase-buffer)
     (setq-local chaplet-graph--nodes nodes)
@@ -339,6 +349,25 @@ Returns the current buffer."
     (setq-local chaplet-bar--extra chaplet-graph--bar-extra)
     (chaplet-bar--install)
     (current-buffer)))
+
+(defun chaplet-graph--focus-set (focus-id)
+  "Move focus to FOCUS-ID, redrawing only the visual.
+In image mode the SVG is regenerated (fresh halo) and the image is
+replaced in the buffer; in text mode only the ▶ marker moves.
+Skips `chaplet-graph--bind-node-events', layout recompute, and the
+mode-line / bar reinstall — the node set is unchanged.  Returns the
+current buffer."
+  (setq-local chaplet-graph--focus-id focus-id)
+  (let* ((inhibit-read-only t)
+         (image (chaplet-graph--image
+                 chaplet-graph--nodes chaplet-graph--edges focus-id)))
+    (if image
+        (progn
+          (erase-buffer)
+          (insert-image image))
+      (chaplet-graph--text-render
+       chaplet-graph--nodes chaplet-graph--edges focus-id)))
+  (current-buffer))
 
 (defun chaplet-graph--update-mode-line ()
   "Set `mode-line-process' in the current graph buffer."
@@ -385,11 +414,8 @@ called interactively)."
   (let* ((ids (mapcar (lambda (n) (plist-get n :id)) chaplet-graph--nodes)))
     (when ids
       (let* ((pos (or (cl-position chaplet-graph--focus-id ids :test #'equal) -1))
-             (next (mod (+ pos delta) (length ids)))
-             (id (nth next ids)))
-        (setq-local chaplet-graph--focus-id id)
-        (chaplet-graph--render chaplet-graph--nodes
-                               chaplet-graph--edges id)))))
+             (next (mod (+ pos delta) (length ids))))
+        (chaplet-graph--focus-set (nth next ids))))))
 
 (defun chaplet-graph--focus-next ()
   "Move focus to the next node (n), re-rendering with the halo."
@@ -416,10 +442,7 @@ called interactively)."
                        (lambda (e) (equal (cdr e) id))
                        chaplet-graph--edges))))
     (if target
-        (progn
-          (setq-local chaplet-graph--focus-id (car target))
-          (chaplet-graph--render chaplet-graph--nodes
-                                 chaplet-graph--edges (car target)))
+        (chaplet-graph--focus-set (car target))
       (message "chaplet: no dependents%s"
                (if id "" " (no focus)")))))
 
@@ -431,10 +454,7 @@ called interactively)."
                        (lambda (e) (equal (car e) id))
                        chaplet-graph--edges))))
     (if target
-        (progn
-          (setq-local chaplet-graph--focus-id (cdr target))
-          (chaplet-graph--render chaplet-graph--nodes
-                                 chaplet-graph--edges (cdr target)))
+        (chaplet-graph--focus-set (cdr target))
       (message "chaplet: no deps%s"
                (if id "" " (no focus)")))))
 
