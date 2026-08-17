@@ -23,6 +23,12 @@ KEY-STRING is parsed with `kbd'.  Entries whose key is not bound in
 Used for bindings that are not plain keys in `chaplet-bar--map'
 (e.g. per-node mouse hot-spots in the graph buffer).")
 
+(defvar-local chaplet-bar--rendered nil
+  "Cached bar string, rendered once per `chaplet-bar--install'.
+The mode-line element reads this variable instead of calling
+`chaplet-bar--render' on every redisplay; the bar is re-rendered
+only when `chaplet-bar--install' runs again.")
+
 (defvar-local chaplet-bar--installed nil
   "Non-nil when the bar element has been appended to `mode-line-format'.")
 
@@ -58,18 +64,24 @@ when there are no entries."
 (defun chaplet-bar--install ()
   "Prepend the keybinding bar to the buffer-local `mode-line-format'.
 
-The `(:eval (chaplet-bar--render))' element is inserted at the front
-of the mode line (after the leading \"%e\" error-message slot when
-present).  Appending at the end is not portable: vanilla Emacs ends
-the mode line with the `%-' space-filler in `mode-line-end-spaces',
-and Doom's doom-modeline right-aligns its tail with `:align-to' —
-both clip anything placed after them, hiding the bar.  A leading
-position is always visible regardless of the mode-line package.
+Renders the bar once into `chaplet-bar--rendered'; the inserted
+element `(:eval chaplet-bar--rendered)' is a cheap variable read on
+every redisplay, not a re-render.  The bar is re-rendered only when
+this function runs again (e.g. after the buffer's specs change).
+
+The element is inserted at the front of the mode line (after the
+leading \"%e\" error-message slot when present).  Appending at the
+end is not portable: vanilla Emacs ends the mode line with the `%-'
+space-filler in `mode-line-end-spaces', and Doom's doom-modeline
+right-aligns its tail with `:align-to' — both clip anything placed
+after them, hiding the bar.  A leading position is always visible
+regardless of the mode-line package.
 Idempotent: at most one bar element per buffer."
+  (setq-local chaplet-bar--rendered (chaplet-bar--render))
   (unless chaplet-bar--installed
     (setq-local chaplet-bar--installed t)
     (when (consp mode-line-format)
-      (let ((bar '((:eval (chaplet-bar--render)))))
+      (let ((bar '((:eval chaplet-bar--rendered))))
         (setq-local mode-line-format
                     (if (equal (car mode-line-format) "%e")
                         (cons "%e" (append bar (cdr mode-line-format)))

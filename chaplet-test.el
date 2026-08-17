@@ -1797,26 +1797,26 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
   (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))
     (with-temp-buffer
       (chaplet-list-mode)
-      (should (member '(:eval (chaplet-bar--render)) mode-line-format))
+      (should (member '(:eval chaplet-bar--rendered) mode-line-format))
       (should chaplet-bar--installed)
-      (let ((s (chaplet-bar--render)))
-        (should (string-match-p "\\[v\\]" s))
-        (should (string-match-p "\\[s\\]" s))
-        (should (string-match-p "\\[q\\]" s))
-        (should (string-match-p "\\[mouse-1\\]" s))))))
+      (should (string-match-p "\\[v\\]" chaplet-bar--rendered))
+      (should (string-match-p "\\[s\\]" chaplet-bar--rendered))
+      (should (string-match-p "\\[q\\]" chaplet-bar--rendered))
+      (should (string-match-p "\\[mouse-1\\]" chaplet-bar--rendered))
+      (should (equal chaplet-bar--rendered (chaplet-bar--render))))))
 
 (ert-deftest chaplet-test-bar-graph-installed ()
   "The graph buffer's mode line carries the keybinding bar."
   (with-temp-buffer
     (let ((f (chaplet-test--graph-fixture)))
       (chaplet-graph--render (car f) (cdr f) nil))
-    (should (member '(:eval (chaplet-bar--render)) mode-line-format))
-    (let ((s (chaplet-bar--render)))
-      (should (string-match-p "\\[n\\]" s))
-      (should (string-match-p "\\[p\\]" s))
-      (should (string-match-p "\\[RET\\]" s))
-      (should (string-match-p "\\[mouse-1\\]" s))
-      (should (string-match-p "\\[mouse-2\\]" s)))))
+    (should (member '(:eval chaplet-bar--rendered) mode-line-format))
+    (should (string-match-p "\\[n\\]" chaplet-bar--rendered))
+    (should (string-match-p "\\[p\\]" chaplet-bar--rendered))
+    (should (string-match-p "\\[RET\\]" chaplet-bar--rendered))
+    (should (string-match-p "\\[mouse-1\\]" chaplet-bar--rendered))
+    (should (string-match-p "\\[mouse-2\\]" chaplet-bar--rendered))
+    (should (equal chaplet-bar--rendered (chaplet-bar--render)))))
 
 (ert-deftest chaplet-test-bar-list-keys-match-keymap ()
   "Every key listed in the main bar is bound in `chaplet-list-mode-map'.
@@ -1825,7 +1825,7 @@ bind it; `s' reflects the real binding (graph)."
   (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))
     (with-temp-buffer
       (chaplet-list-mode)
-      (let ((keys (chaplet-test-bar--keys (chaplet-bar--render))))
+      (let ((keys (chaplet-test-bar--keys chaplet-bar--rendered)))
         (dolist (k keys)
           (should (lookup-key chaplet-list-mode-map (kbd k))))
         (should-not (member "c" keys))
@@ -1837,7 +1837,7 @@ Mouse entries reflect the per-node hot-spot bindings installed on render."
   (with-temp-buffer
     (let ((f (chaplet-test--graph-fixture)))
       (chaplet-graph--render (car f) (cdr f) nil))
-    (let ((keys (chaplet-test-bar--keys (chaplet-bar--render))))
+    (let ((keys (chaplet-test-bar--keys chaplet-bar--rendered)))
       (dolist (k (cl-remove-if (lambda (k) (member k '("mouse-1" "mouse-2")))
                                keys))
         (should (lookup-key chaplet-graph-mode-map (kbd k))))
@@ -1849,7 +1849,7 @@ Mouse entries reflect the per-node hot-spot bindings installed on render."
 (ert-deftest chaplet-test-bar-unrelated-buffer ()
   "Buffers that never install the bar have no bar mode-line element."
   (with-temp-buffer
-    (should-not (member '(:eval (chaplet-bar--render)) mode-line-format))
+    (should-not (member '(:eval chaplet-bar--rendered) mode-line-format))
     (should-not (bound-and-true-p chaplet-bar--installed))
     (should (string= (chaplet-bar--render) ""))))
 
@@ -1858,7 +1858,41 @@ Mouse entries reflect the per-node hot-spot bindings installed on render."
   (with-temp-buffer
     (chaplet-bar--install)
     (chaplet-bar--install)
-    (should (= 1 (cl-count '(:eval (chaplet-bar--render)) mode-line-format
+    (should (= 1 (cl-count '(:eval chaplet-bar--rendered) mode-line-format
+                           :test #'equal)))))
+
+(ert-deftest chaplet-test-bar-render-cached ()
+  "`chaplet-bar--install' renders once; the mode-line element only reads
+the cached string, so `chaplet-bar--render' is not called on redisplay."
+  (with-temp-buffer
+    (let ((calls 0)
+          (orig (symbol-function 'chaplet-bar--render)))
+      (cl-letf (((symbol-function 'chaplet-bar--render)
+                 (lambda ()
+                   (cl-incf calls)
+                   (funcall orig))))
+        (chaplet-bar--install)
+        (should (= 1 calls)))
+      (should (member '(:eval chaplet-bar--rendered) mode-line-format))
+      (should-not (member '(:eval (chaplet-bar--render)) mode-line-format))
+      (should (equal chaplet-bar--rendered (chaplet-bar--render))))))
+
+(ert-deftest chaplet-test-bar-reinstall-renders ()
+  "Re-invoking `chaplet-bar--install' re-renders the cached string
+without duplicating the mode-line element."
+  (with-temp-buffer
+    (setq-local chaplet-bar--map (make-sparse-keymap))
+    (define-key chaplet-bar--map (kbd "x") #'ignore)
+    (define-key chaplet-bar--map (kbd "y") #'ignore)
+    (setq-local chaplet-bar--specs '(("x" . "ex")))
+    (chaplet-bar--install)
+    (should (string-match-p "\\[x\\]" chaplet-bar--rendered))
+    (setq-local chaplet-bar--specs '(("y" . "why")))
+    (chaplet-bar--install)
+    (should (string-match-p "\\[y\\]" chaplet-bar--rendered))
+    (should-not (string-match-p "\\[x\\]" chaplet-bar--rendered))
+    (should (equal chaplet-bar--rendered (chaplet-bar--render)))
+    (should (= 1 (cl-count '(:eval chaplet-bar--rendered) mode-line-format
                            :test #'equal)))))
 
 (ert-deftest chaplet-test-bar-leading ()
@@ -1869,13 +1903,13 @@ ends in a space-filler (regression: appending after the filler clipped it)."
     (let ((mlf (if (equal (car mode-line-format) "%e")
                    (cdr mode-line-format)
                  mode-line-format)))
-      (should (equal (car mlf) '(:eval (chaplet-bar--render)))))))
+      (should (equal (car mlf) '(:eval chaplet-bar--rendered))))))
 
 (ert-deftest chaplet-test-bar-not-after-filler ()
   "The bar is inserted before `mode-line-end-spaces', not clipped after it."
   (with-temp-buffer
     (chaplet-bar--install)
-    (let ((bar-pos (cl-position '(:eval (chaplet-bar--render)) mode-line-format
+    (let ((bar-pos (cl-position '(:eval chaplet-bar--rendered) mode-line-format
                                 :test #'equal))
           (filler-pos (cl-position 'mode-line-end-spaces mode-line-format)))
       (should bar-pos)
