@@ -85,13 +85,28 @@ When INDENT is non-nil, indent the title by two spaces."
              "")
            (if indent (concat "  " title) title)))))
 
+(defvar chaplet-list--epic-cache (make-hash-table :test 'equal)
+  "Cache of epic bead alists fetched via `chaplet-bd-show'.
+Keyed by epic id.  Avoids repeated subprocess calls on every refresh tick
+for epics not in the current view.")
+
+(defun chaplet-list--fetch-epic (id)
+  "Return the bead alist for epic ID, using the cache.
+Falls back to `chaplet-bd-show'; caches the result (including nil)."
+  (let ((cached (gethash id chaplet-list--epic-cache 'miss)))
+    (if (not (eq cached 'miss))
+        cached
+      (let ((bead (chaplet-bd-show id)))
+        (puthash id bead chaplet-list--epic-cache)
+        bead))))
+
 (defun chaplet-list--group-by-epic (beads)
   "Return tabulated-list entries for BEADS, grouped by epic.
 Epics appear as header rows; their child tasks (beads whose `parent'
 matches the epic's id) appear indented below.  Beads without a parent
 and that are not epics appear ungrouped at the end.  If an epic is
 referenced by a child's parent but not present in BEADS, it is fetched
-via `chaplet-bd-show' and inserted as a header."
+via `chaplet-list--fetch-epic' (cached) and inserted as a header."
   (let ((by-parent (make-hash-table :test 'equal))
         (epics-in-view (make-hash-table :test 'equal))
         (orphans nil)
@@ -99,7 +114,7 @@ via `chaplet-bd-show' and inserted as a header."
     ;; Classify: index children by parent, collect epics in view.
     (dolist (b beads)
       (let ((parent (alist-get 'parent b))
-            (type (alist-get 'issue_type b))
+            (type (or (alist-get 'issue_type b) ""))
             (id (alist-get 'id b)))
         (cond
          ((string= type "epic")
@@ -119,8 +134,8 @@ via `chaplet-bd-show' and inserted as a header."
               (or (cl-find epic-id beads
                            :key (lambda (b) (alist-get 'id b))
                            :test #'string=)
-                  ;; Epic not in current view; fetch it for the header.
-                  (chaplet-bd-show epic-id))))
+                  ;; Epic not in current view; fetch from cache/bd.
+                  (chaplet-list--fetch-epic epic-id))))
          (when epic-bead
            (push (chaplet-list--entry epic-bead) entries))
          (dolist (child (nreverse children))
@@ -372,7 +387,7 @@ Both filters are composed into the view's bd query (server-side)."
 \\{chaplet-list-mode-map}"
   (setq tabulated-list-format chaplet-list--format)
   (setq tabulated-list-padding 2)
-  (setq tabulated-list-sort-key '("ID" . nil))
+  (setq tabulated-list-sort-key nil)
   (add-hook 'tabulated-list-revert-hook #'chaplet-list-refresh nil t)
   (when (boundp 'window-buffer-change-functions)
     (add-hook 'window-buffer-change-functions #'chaplet--refresh-on-focus nil t))
