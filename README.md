@@ -13,8 +13,9 @@ theme-adaptive faces (dark and light).
 - Evil-aware bindings (plain Emacs + `evil` normal/motion states).
 - Read-only buffers that suppress leaking single-char evil motions.
 - Auto-updates as tickets change: write actions refresh every open view,
-  and each view re-fetches from `bd` when it becomes visible (see
-  `chaplet-auto-refresh`).
+  and visible list, graph, and detail buffers re-fetch from `bd` when shown
+  and every five seconds by default (see `chaplet-auto-refresh` and
+  `chaplet-refresh-interval`).
 
 ---
 
@@ -65,7 +66,10 @@ Global keys (with `chaplet-mode` on):
 ### List view
 
 The browser is a `tabulated-list` table of beads with a switchable view
-and a live keybinding bar in the mode line.
+and a live keybinding bar in the mode line.  When parent metadata is
+available, epic beads are shown above their related tasks, which are
+indented beneath them; an epic outside the current view is fetched so it
+can still be displayed as the group header.
 
 | Key | Effect |
 | --- | --- |
@@ -134,7 +138,9 @@ navigable ASCII gutter-tree (same keys).
 (setq chaplet-graph--text-lane-max nil) ; cap gutter lanes (nil = unlimited)
 
 ;; Auto-refresh (default t)
-(setq chaplet-auto-refresh nil)         ; don't re-fetch views on focus
+(setq chaplet-auto-refresh nil)         ; disable focus + periodic auto-refresh
+(setq chaplet-refresh-interval 5)       ; seconds; nil disables periodic refresh
+(setq chaplet-refresh-delay 2)          ; min seconds between focus refreshes
 ```
 
 ## Architecture
