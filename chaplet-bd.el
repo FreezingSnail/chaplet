@@ -50,7 +50,8 @@ Handles `[]', `null', and a single bare object."
 
 (defconst chaplet-bd--fields
   '(id title description status priority issue_type owner labels
-        dependencies defer_until design acceptance created_at updated_at)
+        dependencies defer_until design acceptance created_at updated_at
+        parent)
   "Fields present in a normalized bead alist, in order.")
 
 (defun chaplet-bd--normalize (parsed)

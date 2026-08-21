@@ -64,14 +64,16 @@ propertized with the matching priority face; \"\" when PRIORITY is nil."
       (propertize (concat dot (number-to-string p))
                   'face (chaplet-priority-face p)))))
 
-(defun chaplet-list--entry (bead)
+(defun chaplet-list--entry (bead &optional indent)
   "Return a tabulated-list entry (ID . [ID TYPE STATE P STAGED TITLE]) for BEAD.
 Cells are propertized with `chaplet-face' faces: ID → `chaplet-id',
-State → pill face, P → priority dot+number, Type → type face, Staged → ✔."
+State → pill face, P → priority dot+number, Type → type face, Staged → ✔.
+When INDENT is non-nil, indent the title by two spaces."
   (let ((id (or (alist-get 'id bead) ""))
         (type (or (alist-get 'issue_type bead) ""))
         (status (or (alist-get 'status bead) ""))
-        (priority (alist-get 'priority bead)))
+        (priority (alist-get 'priority bead))
+        (title (or (alist-get 'title bead) "")))
     (list id
           (vector
            (propertize id 'face 'chaplet-id)
@@ -81,7 +83,53 @@ State → pill face, P → priority dot+number, Type → type face, Staged → �
            (if (chaplet-list--staged-p bead)
                (propertize "✔" 'face 'chaplet-staged)
              "")
-           (or (alist-get 'title bead) "")))))
+           (if indent (concat "  " title) title)))))
+
+(defun chaplet-list--group-by-epic (beads)
+  "Return tabulated-list entries for BEADS, grouped by epic.
+Epics appear as header rows; their child tasks (beads whose `parent'
+matches the epic's id) appear indented below.  Beads without a parent
+and that are not epics appear ungrouped at the end.  If an epic is
+referenced by a child's parent but not present in BEADS, it is fetched
+via `chaplet-bd-show' and inserted as a header."
+  (let ((by-parent (make-hash-table :test 'equal))
+        (epics-in-view (make-hash-table :test 'equal))
+        (orphans nil)
+        (entries nil))
+    ;; Classify: index children by parent, collect epics in view.
+    (dolist (b beads)
+      (let ((parent (alist-get 'parent b))
+            (type (alist-get 'issue_type b))
+            (id (alist-get 'id b)))
+        (cond
+         ((string= type "epic")
+          (puthash id t epics-in-view)
+          ;; If no children reference it, it still gets a slot.
+          (unless (gethash id by-parent)
+            (puthash id nil by-parent)))
+         (parent
+          (puthash parent (cons b (gethash parent by-parent)) by-parent))
+         (t
+          (push b orphans)))))
+    ;; For each parent referenced by children, ensure the epic header exists.
+    ;; Emit groups: epic header + indented children.
+    (maphash
+     (lambda (epic-id children)
+       (let ((epic-bead
+              (or (cl-find epic-id beads
+                           :key (lambda (b) (alist-get 'id b))
+                           :test #'string=)
+                  ;; Epic not in current view; fetch it for the header.
+                  (chaplet-bd-show epic-id))))
+         (when epic-bead
+           (push (chaplet-list--entry epic-bead) entries))
+         (dolist (child (nreverse children))
+           (push (chaplet-list--entry child t) entries))))
+     by-parent)
+    ;; Ungrouped beads (no parent, not an epic) at the end.
+    (dolist (b (nreverse orphans))
+      (push (chaplet-list--entry b) entries))
+    (nreverse entries)))
 
 (defvar-local chaplet-list--modeline-string nil
   "Cached mode-line string for the current chaplet list buffer.
@@ -148,7 +196,7 @@ being listed, so the bar mirrors the real bindings.")
                  (equal beads chaplet-list--beads))
       (setq chaplet-list--beads beads)
       (setq chaplet-list--rendered-view chaplet-list--current-view)
-      (setq tabulated-list-entries (mapcar #'chaplet-list--entry beads))
+      (setq tabulated-list-entries (chaplet-list--group-by-epic beads))
       (setq chaplet-list--modeline-string (chaplet-list--modeline))
       (setq mode-line-process chaplet-list--modeline-string)
       (tabulated-list-init-header)
