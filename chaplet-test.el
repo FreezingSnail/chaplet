@@ -620,6 +620,70 @@ current buffer when it is a chaplet list."
         (chaplet--refresh-on-focus (selected-window))
         (should-not refreshed)))))
 
+
+(ert-deftest chaplet-test-refresh-timer-schedules-ticks ()
+  "`chaplet--ensure-refresh-timer' installs the configured periodic timer."
+  (let ((chaplet-auto-refresh t)
+        (chaplet-refresh-interval 5)
+        (chaplet--refresh-timer nil))
+    (unwind-protect
+        (progn
+          (chaplet--ensure-refresh-timer)
+          (should (timerp chaplet--refresh-timer))
+          (should (eq (timer--function chaplet--refresh-timer)
+                      #'chaplet--refresh-tick)))
+      (when (timerp chaplet--refresh-timer)
+        (cancel-timer chaplet--refresh-timer)))))
+
+(ert-deftest chaplet-test-refresh-tick-refreshes-only-stale-visible-buffers ()
+  "A tick refreshes stale visible buffers, never hidden Chaplet buffers."
+  (let ((chaplet-auto-refresh t)
+        (visible (generate-new-buffer " *chaplet visible*"))
+        (hidden (generate-new-buffer " *chaplet hidden*"))
+        refreshed)
+    (unwind-protect
+        (progn
+          (dolist (buffer (list visible hidden))
+            (with-current-buffer buffer
+              (chaplet-list-mode)
+              (setq-local chaplet--last-fetch
+                          (time-subtract (current-time) 10))))
+          (cl-letf (((symbol-function 'chaplet--visible-buffers)
+                     (lambda () (list visible)))
+                    ((symbol-function 'chaplet--refresh-buffer)
+                     (lambda () (push (current-buffer) refreshed))))
+            (chaplet--refresh-tick))
+          (should (equal refreshed (list visible))))
+      (mapc (lambda (buffer)
+              (when (buffer-live-p buffer) (kill-buffer buffer)))
+            (list visible hidden)))))
+
+(ert-deftest chaplet-test-list-refresh-skips-unchanged-render ()
+  "Unchanged list data is fetched but does not redraw the table."
+  (let ((beads (list '((id . "bd-1") (title . "one") (status . "open"))))
+        (prints 0))
+    (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) beads))
+              ((symbol-function 'tabulated-list-print)
+               (lambda (&rest _) (cl-incf prints))))
+      (with-temp-buffer
+        (chaplet-list-mode)
+        (setq prints 0)
+        (chaplet-list-refresh)
+        (should (= prints 0))))))
+
+(ert-deftest chaplet-test-graph-refresh-skips-unchanged-render ()
+  "Unchanged graph data skips layout and render work."
+  (let ((renders 0))
+    (cl-letf (((symbol-function 'chaplet-bd-graph-data)
+               (lambda (_filters)
+                 (symbol-value 'chaplet-test--graph-beads)))
+              ((symbol-function 'chaplet-graph--render)
+               (lambda (&rest _) (cl-incf renders))))
+      (with-temp-buffer
+        (setq-local chaplet-graph--view 'all)
+        (chaplet-graph--refresh)
+        (chaplet-graph--refresh)
+        (should (= renders 1))))))
 (ert-deftest chaplet-test-refresh-marks-fetch ()
   "Every list refresh stamps `chaplet--last-fetch' in the buffer."
   (cl-letf (((symbol-function 'chaplet-list--fetch) (lambda (_view) nil)))

@@ -42,6 +42,12 @@
   "Non-nil when the current graph buffer shows the text fallback.")
 (defvar-local chaplet-graph--view 'all
   "Current view symbol for the graph buffer (default `all').")
+(defvar-local chaplet-graph--beads nil
+  "Most recently rendered graph data.")
+(defvar-local chaplet-graph--rendered-view nil
+  "View symbol represented by the most recent graph rendering.")
+(defvar-local chaplet-graph--rendered-focus nil
+  "Focus id represented by the most recent graph rendering.")
 
 (defvar chaplet-graph-mode-map
   (make-sparse-keymap)
@@ -358,6 +364,7 @@ Skips `chaplet-graph--bind-node-events', layout recompute, and the
 mode-line / bar reinstall — the node set is unchanged.  Returns the
 current buffer."
   (setq-local chaplet-graph--focus-id focus-id)
+  (setq-local chaplet-graph--rendered-focus focus-id)
   (let* ((inhibit-read-only t)
          (image (chaplet-graph--image
                  chaplet-graph--nodes chaplet-graph--edges focus-id)))
@@ -376,25 +383,31 @@ current buffer."
                 (symbol-name chaplet-graph--view))))
 
 (defun chaplet-graph--refresh ()
-  "Re-fetch, re-layout and re-render the graph in the current buffer.
+  "Re-fetch graph data, rendering only when data, view, or focus changed.
 Preserves `chaplet-graph--focus-id' when the focused node still exists."
   (interactive)
   (let* ((keep-focus chaplet-graph--focus-id)
          (beads (chaplet-bd-graph-data
                  (chaplet-bd--view-filters chaplet-graph--view))))
-    (if (null beads)
-        (message "chaplet: no graph data")
-      (let* ((layout (chaplet-graph--layout
-                      (chaplet-graph--nodes beads)))
-             (nodes (car layout))
-             (edges (cdr layout)))
-        (setq-local chaplet-graph--nodes nodes)
-        (setq-local chaplet-graph--edges edges)
-        (setq-local chaplet-graph--focus-id
-                   (when (member keep-focus
-                                 (mapcar (lambda (n) (plist-get n :id)) nodes))
-                     keep-focus))
-        (chaplet-graph--render nodes edges chaplet-graph--focus-id)))
+    (unless (and (equal beads chaplet-graph--beads)
+                 (eq chaplet-graph--view chaplet-graph--rendered-view)
+                 (equal keep-focus chaplet-graph--rendered-focus))
+      (if (null beads)
+          (message "chaplet: no graph data")
+        (let* ((layout (chaplet-graph--layout
+                        (chaplet-graph--nodes beads)))
+               (nodes (car layout))
+               (edges (cdr layout)))
+          (setq-local chaplet-graph--nodes nodes)
+          (setq-local chaplet-graph--edges edges)
+          (setq-local chaplet-graph--focus-id
+                     (when (member keep-focus
+                                   (mapcar (lambda (n) (plist-get n :id)) nodes))
+                       keep-focus))
+          (chaplet-graph--render nodes edges chaplet-graph--focus-id)))
+      (setq-local chaplet-graph--beads beads)
+      (setq-local chaplet-graph--rendered-view chaplet-graph--view)
+      (setq-local chaplet-graph--rendered-focus chaplet-graph--focus-id))
     (chaplet--mark-fetch)))
 
 (defun chaplet-graph-set-view (name)

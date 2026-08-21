@@ -13,6 +13,9 @@
 (defvar-local chaplet-detail--id nil
   "Bead id shown by the current detail buffer.")
 
+(defvar-local chaplet-detail--rendered nil
+  "Most recently rendered detail text, used to skip unchanged redraws.")
+
 (defconst chaplet-detail--buffer-name "*chaplet:detail*"
   "Single shared detail buffer; reused for every bead.")
 
@@ -72,15 +75,19 @@ Return the active major mode symbol."
     (progn (fundamental-mode) (font-lock-mode 1) 'fundamental-mode)))
 
 (defun chaplet-detail--populate (id)
-  "Fetch bead ID and render it into the current buffer."
-  (let ((bead (chaplet-bd-show id)))
+  "Fetch bead ID and render it into the current buffer when changed."
+  (let* ((bead (chaplet-bd-show id))
+         (rendered (and bead
+                        (chaplet-detail--render
+                         (cons (cons 'comments (chaplet-bd-comments id)) bead)))))
     (unless bead
       (error "chaplet: no bead %s" id))
-    (let ((inhibit-read-only t))
-      (erase-buffer)
-      (insert (chaplet-detail--render
-               (cons (cons 'comments (chaplet-bd-comments id)) bead)))
-      (goto-char (point-min)))
+    (unless (equal rendered chaplet-detail--rendered)
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert rendered)
+        (goto-char (point-min)))
+      (setq-local chaplet-detail--rendered rendered))
     (chaplet--mark-fetch)))
 
 (defun chaplet-detail-quit ()
