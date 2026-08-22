@@ -2149,5 +2149,24 @@ ends in a space-filler (regression: appending after the filler clipped it)."
       (should bar-pos)
       (should (or (null filler-pos) (< bar-pos filler-pos))))))
 
+(ert-deftest chaplet-test-bd-invoke-rejects-nil-argument ()
+  "A missing bead id must not reach `call-process'.
+`(apply #'call-process ... (list ... nil))' raises the opaque
+\"apply: Wrong type argument: stringp, nil\" in the echo area; the bridge
+reports the incomplete command instead."
+  (should-error (chaplet-bd--invoke (list "show" "--json" "--long" nil))
+                :type 'user-error)
+  (should-error (chaplet-bd-show nil) :type 'user-error))
+
+(ert-deftest chaplet-test-list-open-without-bead-at-point ()
+  "RET on a non-row line (e.g. an empty view) reports no bead at point."
+  (should-error (chaplet-list-open nil) :type 'user-error)
+  (should-error (chaplet-list--show-raw nil) :type 'user-error))
+
+(ert-deftest chaplet-test-detail-rejects-empty-id ()
+  "The detail buffer refuses a nil or empty bead id."
+  (should-error (chaplet-detail nil) :type 'user-error)
+  (should-error (chaplet-detail "") :type 'user-error))
+
 (provide 'chaplet-test)
 ;;; chaplet-test.el ends here

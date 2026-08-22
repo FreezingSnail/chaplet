@@ -5,6 +5,7 @@
 ;; elisp (JSON -> alists).  Writes execute bd subcommands and return t/nil
 ;; (or the new id for `create`).
 
+(require 'cl-lib)
 (require 'json)
 (require 'project)
 
@@ -24,7 +25,14 @@
 
 (defun chaplet-bd--invoke (args)
   "Run `chaplet-bd-program' with ARGS, scoped to `-C ROOT'.
-Return a cons cell (EXIT-CODE . STDOUT).  STDERR is discarded."
+Return a cons cell (EXIT-CODE . STDOUT).  STDERR is discarded.
+
+ARGS must be all strings.  A nil element (typically a missing bead id from
+a command run with point off a row) reaches `call-process' as a raw
+`wrong-type-argument' the user cannot act on, so it is rejected here with a
+readable `user-error' instead."
+  (unless (and (listp args) (cl-every #'stringp args))
+    (user-error "chaplet: incomplete bd command (missing argument): %S" args))
   (with-temp-buffer
     (let* ((root (chaplet-bd--root))
            (default-directory root)

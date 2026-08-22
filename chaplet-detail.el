@@ -167,6 +167,8 @@ safely when evil isn't installed."
 Reuses `chaplet-detail--buffer-name' so viewing tickets never leaks
 a new orphan buffer per bead."
   (interactive "sBead id: ")
+  (unless (and (stringp id) (not (string-empty-p id)))
+    (user-error "chaplet: no bead id given"))
   (let ((buf (get-buffer-create chaplet-detail--buffer-name)))
     (with-current-buffer buf
       (unless (bound-and-true-p chaplet-detail-mode)

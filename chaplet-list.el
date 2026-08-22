@@ -193,6 +193,8 @@ being listed, so the bar mirrors the real bindings.")
 
 (defun chaplet-list--show-raw (id)
   "Display raw `bd show ID' output in a buffer (fallback when detail absent)."
+  (unless (stringp id)
+    (user-error "chaplet: no bead at point"))
   (let* ((result (chaplet-bd--invoke (list "show" id)))
          (buf (get-buffer-create (format "*chaplet:show %s*" id))))
     (with-current-buffer buf
@@ -341,8 +343,12 @@ is gated by `chaplet-auto-refresh' and debounced by
       (chaplet--refresh-buffer))))
 
 (defun chaplet-list-open (id)
-  "Open bead ID via `chaplet-detail' when present; else raw `bd show'."
+  "Open bead ID via `chaplet-detail' when present; else raw `bd show'.
+An empty view (or point on a non-row line) yields no id: report that
+instead of running an incomplete bd command."
   (interactive (list (tabulated-list-get-id)))
+  (unless (stringp id)
+    (user-error "chaplet: no bead at point"))
   (if (fboundp 'chaplet-detail)
       (chaplet-detail id)
     (chaplet-list--show-raw id)))
