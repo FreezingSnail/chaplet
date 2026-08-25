@@ -38,12 +38,14 @@
   "Canonical view table exposes filters and names."
   (should (equal (chaplet-bd--view-filters 'inbox)
                  '((:status . "deferred") (:label . "staged"))))
+  (should (equal (chaplet-bd--view-filters 'human)
+                 '((:label . "human"))))
   (should (equal (chaplet-bd--view-filters 'deferred)
                  '((:status . "deferred"))))
   (should (equal (chaplet-bd--view-filters 'all) '((:all . t))))
   (should (equal (chaplet-bd--view-filters 'bogus) nil))
   (should (equal (chaplet-bd--view-names)
-                 '(inbox deferred open in-progress blocked closed all))))
+                 '(inbox human deferred open in-progress blocked closed all))))
 
 (ert-deftest chaplet-test-bd-filters->expr ()
   "`chaplet-bd--filters->expr' composes query clauses, skipping booleans."
@@ -407,26 +409,28 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
       (should (string-match-p "missing-dep" (buffer-string))))))
 
 (ert-deftest chaplet-test-transient-actions-for-state ()
-  "`chaplet-transient--actions-for-state' maps state and stagedness to actions."
-  (should (equal (chaplet-transient--actions-for-state "deferred" t)
-                 '(approve reject comment edit-design)))
-  (should (equal (chaplet-transient--actions-for-state "deferred" nil)
-                 '(comment edit-design undefer)))
-  (should (equal (chaplet-transient--actions-for-state "open")
-                 '(comment edit-design new)))
-  (should (equal (chaplet-transient--actions-for-state "in_progress")
-                 '(comment)))
-  (should (equal (chaplet-transient--actions-for-state "blocked")
-                 '(comment)))
-  (should (equal (chaplet-transient--actions-for-state "closed")
-                 '(comment)))
-  (should (equal (chaplet-transient--actions-for-state nil)
-                 '(comment)))
-  (should (memq 'approve (chaplet-transient--actions-for-state "deferred" t)))
-  (should (memq 'reject (chaplet-transient--actions-for-state "deferred" t)))
-  (should (memq 'undefer (chaplet-transient--actions-for-state "deferred" nil)))
-  (should-not (memq 'reject (chaplet-transient--actions-for-state "deferred" nil)))
-  (should-not (memq 'approve (chaplet-transient--actions-for-state "closed"))))
+  "Lifecycle action eligibility preserves state- and human-specific controls."
+  (let ((open (chaplet-transient--actions-for-state "open")))
+    (dolist (action '(comment edit-field claim assign priority label-add
+                       label-remove dependency-add dependency-remove defer close
+                       duplicate supersede new))
+      (should (memq action open)))
+    (should-not (memq 'reopen open)))
+  (let ((staged (chaplet-transient--actions-for-state "deferred" t)))
+    (should (memq 'approve staged))
+    (should (memq 'reject staged))
+    (should-not (memq 'undefer staged)))
+  (let ((deferred (chaplet-transient--actions-for-state "deferred" nil)))
+    (should (memq 'undefer deferred))
+    (should-not (memq 'reject deferred)))
+  (let ((closed (chaplet-transient--actions-for-state "closed" nil)))
+    (should (memq 'reopen closed))
+    (should-not (memq 'close closed))
+    (should-not (memq 'claim closed)))
+  (should (memq 'human-respond
+                (chaplet-transient--actions-for-state "open" nil t)))
+  (should (memq 'human-dismiss
+                (chaplet-transient--actions-for-state "open" nil t))))
 
 (ert-deftest chaplet-test-transient-action-visible-p ()
   "`chaplet-transient--action-visible-p' respects state and stagedness."
@@ -435,7 +439,7 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
     (should (chaplet-transient--action-visible-p 'approve))
     (should (chaplet-transient--action-visible-p 'reject))
     (should-not (chaplet-transient--action-visible-p 'undefer))
-    (should-not (chaplet-transient--action-visible-p 'new)))
+    (should (chaplet-transient--action-visible-p 'new)))
   (let ((chaplet-transient--state "deferred")
         (chaplet-transient--staged-p nil))
     (should (chaplet-transient--action-visible-p 'undefer))
@@ -443,8 +447,8 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
   (let ((chaplet-transient--state "closed")
         (chaplet-transient--staged-p nil))
     (should (chaplet-transient--action-visible-p 'comment))
-    (should-not (chaplet-transient--action-visible-p 'approve))
-    (should-not (chaplet-transient--action-visible-p 'edit-design))))
+    (should (chaplet-transient--action-visible-p 'edit-design))
+    (should-not (chaplet-transient--action-visible-p 'approve))))
 
 (ert-deftest chaplet-test-transient-approve ()
   "`chaplet-approve' undefer's the bead at point, strips the staged
@@ -1076,7 +1080,7 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
         (setq-local chaplet-graph--view 'all)
         (call-interactively #'chaplet-graph-set-view)
         (should (equal prompt-collection
-                       '("inbox" "deferred" "open" "in-progress"
+                       '("inbox" "human" "deferred" "open" "in-progress"
                          "blocked" "closed" "all")))
         (should (eq chaplet-graph--view 'in-progress))))))
 
@@ -2245,3 +2249,34 @@ reports the incomplete command instead."
                  '((id . "bd-plain") (status . "deferred") (labels . nil)))))
       (should-error (chaplet-detail-approve) :type 'user-error)
       (should-error (chaplet-detail-reject) :type 'user-error))))
+
+
+(ert-deftest chaplet-test-bd-lifecycle-args ()
+  "Lifecycle bridge functions assemble native bd commands exactly."
+  (let (captured)
+    (cl-letf (((symbol-function 'chaplet-bd--invoke)
+               (lambda (args) (setq captured args) (cons 0 ""))))
+      (chaplet-bd-close "bd-1" "done")
+      (should (equal captured '("close" "bd-1" "--reason" "done")))
+      (chaplet-bd-reopen "bd-1")
+      (should (equal captured '("reopen" "bd-1")))
+      (chaplet-bd-claim "bd-1")
+      (should (equal captured '("update" "bd-1" "--claim")))
+      (chaplet-bd-assign "bd-1" "alice")
+      (should (equal captured '("assign" "bd-1" "alice")))
+      (chaplet-bd-priority "bd-1" 0)
+      (should (equal captured '("priority" "bd-1" "0")))
+      (chaplet-bd-update "bd-1" 'title "new title")
+      (should (equal captured '("update" "bd-1" "--title" "new title")))
+      (chaplet-bd-dependency-add "bd-1" "bd-2")
+      (should (equal captured '("dep" "add" "bd-1" "bd-2")))
+      (chaplet-bd-dependency-remove "bd-1" "bd-2")
+      (should (equal captured '("dep" "remove" "bd-1" "bd-2")))
+      (chaplet-bd-duplicate "bd-1" "bd-2")
+      (should (equal captured '("duplicate" "bd-1" "--of" "bd-2")))
+      (chaplet-bd-supersede "bd-1" "bd-2")
+      (should (equal captured '("supersede" "bd-1" "--with" "bd-2")))
+      (chaplet-bd-human-respond "bd-1" "approved")
+      (should (equal captured '("human" "respond" "bd-1" "--response" "approved")))
+      (chaplet-bd-human-dismiss "bd-1" "obsolete")
+      (should (equal captured '("human" "dismiss" "bd-1" "--reason" "obsolete"))))))

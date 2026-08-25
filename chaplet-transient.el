@@ -31,23 +31,27 @@
     (when id
       (chaplet-list--staged-p (chaplet-bd-show id)))))
 
-(defun chaplet-transient--actions-for-state (state &optional staged-p)
-  "Return action symbols allowed for STATE and STAGED-P.
-Staged deferred rows get approve/reject/comment/edit-design; plain deferred
-rows get comment/edit-design/undefer.  Open rows get comment/edit-design/new;
-everything else is comment only."
-  (pcase state
-    ("deferred" (if staged-p
-                    '(approve reject comment edit-design)
-                  '(comment edit-design undefer)))
-    ("open"     '(comment edit-design new))
-    (_          '(comment))))
+(defun chaplet-transient--actions-for-state (state &optional staged-p human-p)
+  "Return action symbols allowed for STATE, STAGED-P, and HUMAN-P.
+Every bead supports metadata and dependency controls.  Open lifecycle states
+can be claimed, deferred, closed, duplicated, or superseded; closed beads can
+be reopened.  Staged and human-specific actions remain state-aware."
+  (append '(comment edit-design edit-field new assign priority label-add
+                    label-remove dependency-add dependency-remove)
+          (if (string= state "closed")
+              '(reopen)
+            '(claim defer close duplicate supersede))
+          (pcase state
+            ("deferred" (if staged-p '(approve reject) '(undefer)))
+            (_ nil))
+          (and human-p '(human-respond human-dismiss))))
 
 (defun chaplet-transient--action-visible-p (action)
-  "Return non-nil when ACTION is allowed for `chaplet-transient--state'."
+  "Return non-nil when ACTION is allowed by captured bead context."
   (memq action
         (chaplet-transient--actions-for-state chaplet-transient--state
-                                               chaplet-transient--staged-p)))
+                                               chaplet-transient--staged-p
+                                               chaplet-transient--human-p)))
 
 ;;; Context captured when the menu opens
 
@@ -59,6 +63,9 @@ everything else is comment only."
 
 (defvar chaplet-transient--staged-p nil
   "Whether the bead was staged when the transient was invoked.")
+
+(defvar chaplet-transient--human-p nil
+  "Whether the bead had the `human' label when the transient was invoked.")
 
 (defvar chaplet-transient--list-buffer nil
   "The `chaplet-list-mode' buffer the transient was opened from.")
@@ -118,6 +125,125 @@ Rejection stays staged (a comment is added, the bead is not undeferred)."
       (chaplet-bd-update-design id design)
       (chaplet-transient--refresh))))
 
+(defun chaplet-edit-field (&optional id)
+  "Edit one core field of bead ID, preserving its current value as default."
+  (interactive)
+  (let* ((id (or id (chaplet-transient--id-at-point)))
+         (field (intern (completing-read "Field: "
+                                        '("title" "description" "type"
+                                          "design" "acceptance") nil t)))
+         (bead (and id (chaplet-bd-show id)))
+         (value (read-string (format "%s: " field)
+                             (or (alist-get field bead) ""))))
+    (when id
+      (chaplet-bd-update id field value)
+      (chaplet-transient--refresh))))
+
+(defun chaplet-claim (&optional id)
+  "Claim bead ID for the current bd actor, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-claim id)
+    (chaplet-transient--refresh)))
+
+(defun chaplet-assign (&optional id)
+  "Assign bead ID; a blank assignee unassigns it."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-assign id (read-string "Assignee (blank = unassign): "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-set-priority (&optional id)
+  "Set bead ID priority (0–4), then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (let ((priority (read-string "Priority (0-4): ")))
+      (unless (member priority '("0" "1" "2" "3" "4"))
+        (user-error "chaplet: priority must be 0–4"))
+      (chaplet-bd-priority id priority)
+      (chaplet-transient--refresh))))
+
+(defun chaplet-add-label (&optional id)
+  "Add a label to bead ID, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-label id (read-string "Add label: "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-remove-label (&optional id)
+  "Remove a label from bead ID, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-label-remove id (read-string "Remove label: "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-add-dependency (&optional id)
+  "Make bead ID depend on a prompted bead, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-dependency-add id (read-string "Depends on: "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-remove-dependency (&optional id)
+  "Remove a prompted dependency from bead ID, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-dependency-remove id (read-string "Remove dependency: "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-defer (&optional id)
+  "Defer bead ID, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-defer id)
+    (chaplet-transient--refresh)))
+
+(defun chaplet-close (&optional id)
+  "Close bead ID after optional reason, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-close id (read-string "Close reason (optional): "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-reopen (&optional id)
+  "Reopen bead ID after optional reason, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-reopen id (read-string "Reopen reason (optional): "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-duplicate (&optional id)
+  "Close bead ID as duplicate of a prompted canonical bead."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (let ((canonical (read-string "Canonical bead: ")))
+      (when (y-or-n-p (format "Mark %s duplicate of %s? " id canonical))
+        (chaplet-bd-duplicate id canonical)
+        (chaplet-transient--refresh)))))
+
+(defun chaplet-supersede (&optional id)
+  "Close bead ID as superseded by a prompted replacement bead."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (let ((replacement (read-string "Replacement bead: ")))
+      (when (y-or-n-p (format "Mark %s superseded by %s? " id replacement))
+        (chaplet-bd-supersede id replacement)
+        (chaplet-transient--refresh)))))
+
+(defun chaplet-human-respond (&optional id)
+  "Respond to human bead ID and close it."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-human-respond id (read-string "Response: "))
+    (chaplet-transient--refresh)))
+
+(defun chaplet-human-dismiss (&optional id)
+  "Dismiss human bead ID, then refresh."
+  (interactive)
+  (when-let ((id (or id (chaplet-transient--id-at-point))))
+    (chaplet-bd-human-dismiss id (read-string "Dismiss reason (optional): "))
+    (chaplet-transient--refresh)))
+
 (defun chaplet-new ()
   "Create a new bead from prompts, then refresh the list."
   (interactive)
@@ -171,19 +297,51 @@ Refreshes all chaplet buffers afterwards."
 (transient-define-prefix chaplet-transient ()
   "Actions for the bead at point."
   [:description chaplet-transient--description]
-  ["Bead"
+  ["Lifecycle"
    ("a" "approve" chaplet-approve
     :if (lambda () (chaplet-transient--action-visible-p 'approve)))
    ("r" "reject" chaplet-reject
     :if (lambda () (chaplet-transient--action-visible-p 'reject)))
    ("u" "undefer" chaplet-undefer
     :if (lambda () (chaplet-transient--action-visible-p 'undefer)))
+   ("C" "claim" chaplet-claim
+    :if (lambda () (chaplet-transient--action-visible-p 'claim)))
+   ("A" "assign" chaplet-assign
+    :if (lambda () (chaplet-transient--action-visible-p 'assign)))
+   ("x" "close" chaplet-close
+    :if (lambda () (chaplet-transient--action-visible-p 'close)))
+   ("o" "reopen" chaplet-reopen
+    :if (lambda () (chaplet-transient--action-visible-p 'reopen)))
+   ("=" "duplicate" chaplet-duplicate
+    :if (lambda () (chaplet-transient--action-visible-p 'duplicate)))
+   ("S" "supersede" chaplet-supersede
+    :if (lambda () (chaplet-transient--action-visible-p 'supersede)))]
+  ["Edit"
    ("c" "comment" chaplet-comment
     :if (lambda () (chaplet-transient--action-visible-p 'comment)))
    ("e" "edit design" chaplet-edit-design
     :if (lambda () (chaplet-transient--action-visible-p 'edit-design)))
+   ("E" "edit field" chaplet-edit-field
+    :if (lambda () (chaplet-transient--action-visible-p 'edit-field)))
+   ("p" "priority" chaplet-set-priority
+    :if (lambda () (chaplet-transient--action-visible-p 'priority)))
+   ("l" "add label" chaplet-add-label
+    :if (lambda () (chaplet-transient--action-visible-p 'label-add)))
+   ("L" "remove label" chaplet-remove-label
+    :if (lambda () (chaplet-transient--action-visible-p 'label-remove)))
+   ("d" "add dependency" chaplet-add-dependency
+    :if (lambda () (chaplet-transient--action-visible-p 'dependency-add)))
+   ("D" "remove dependency" chaplet-remove-dependency
+    :if (lambda () (chaplet-transient--action-visible-p 'dependency-remove)))
+   ("f" "defer" chaplet-defer
+    :if (lambda () (chaplet-transient--action-visible-p 'defer)))
    ("n" "new bead" chaplet-new
     :if (lambda () (chaplet-transient--action-visible-p 'new)))]
+  ["Human"
+   ("h" "respond + close" chaplet-human-respond
+    :if (lambda () (chaplet-transient--action-visible-p 'human-respond)))
+   ("H" "dismiss" chaplet-human-dismiss
+    :if (lambda () (chaplet-transient--action-visible-p 'human-dismiss)))]
   ["General"
    ("g" "refresh" chaplet-refresh)
    ("v" "switch view" chaplet-list-set-view)
@@ -191,8 +349,12 @@ Refreshes all chaplet buffers afterwards."
     :if (lambda () (fboundp 'chaplet-list-graph)))]
   (interactive)
   (setq chaplet-transient--id (chaplet-transient--id-at-point))
-  (setq chaplet-transient--state (chaplet-transient--state-at-point))
-  (setq chaplet-transient--staged-p (chaplet-transient--staged-p-at-point))
+  (let ((bead (and chaplet-transient--id
+                   (chaplet-bd-show chaplet-transient--id))))
+    (setq chaplet-transient--state (alist-get 'status bead))
+    (setq chaplet-transient--staged-p (chaplet-list--staged-p bead))
+    (setq chaplet-transient--human-p
+          (member chaplet-human-label (alist-get 'labels bead))))
   (setq chaplet-transient--list-buffer (current-buffer))
   (transient-setup 'chaplet-transient))
 

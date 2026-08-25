@@ -116,8 +116,12 @@ Value filters (:status, :type, :priority, :label, :limit) emit --flag=value."
 The inbox view is the set of staged beads; approving one must strip
 this label so it leaves the inbox even if it stays deferred.")
 
+(defconst chaplet-human-label "human"
+  "Label marking a bead as requiring human input.")
+
 (defconst chaplet-bd--views
   `((inbox . ((:status . "deferred") (:label . ,chaplet-staged-label)))
+    (human . ((:label . ,chaplet-human-label)))
     (deferred . ((:status . "deferred")))
     (open . ((:status . "open")))
     (in-progress . ((:status . "in_progress")))
@@ -245,6 +249,68 @@ Each bead alist carries `dependencies' (list of id strings)."
 (defun chaplet-bd-label-remove (id label)
   "Remove LABEL from bead ID.  Return t on success."
   (chaplet-bd--ok (list "label" "remove" id label)))
+
+(defun chaplet-bd-close (id &optional reason)
+  "Close bead ID, optionally recording REASON.  Return t on success."
+  (chaplet-bd--ok (append (list "close" id)
+                          (and (not (string-empty-p (or reason "")))
+                               (list "--reason" reason)))))
+
+(defun chaplet-bd-reopen (id &optional reason)
+  "Reopen bead ID, optionally recording REASON.  Return t on success."
+  (chaplet-bd--ok (append (list "reopen" id)
+                          (and (not (string-empty-p (or reason "")))
+                               (list "--reason" reason)))))
+
+(defun chaplet-bd-claim (id)
+  "Atomically claim bead ID.  Return t on success."
+  (chaplet-bd--ok (list "update" id "--claim")))
+
+(defun chaplet-bd-assign (id assignee)
+  "Assign bead ID to ASSIGNEE (empty string unassigns)."
+  (chaplet-bd--ok (list "assign" id assignee)))
+
+(defun chaplet-bd-priority (id priority)
+  "Set bead ID to PRIORITY (0–4).  Return t on success."
+  (chaplet-bd--ok (list "priority" id (format "%s" priority))))
+
+(defun chaplet-bd-update (id field value)
+  "Set mutable bead FIELD to VALUE.  Return t on success.
+FIELD is one of title, description, type, design, or acceptance."
+  (let ((flag (pcase field
+                ('title "--title")
+                ('description "--description")
+                ('type "--type")
+                ('design "--design")
+                ('acceptance "--acceptance")
+                (_ (error "chaplet-bd: unsupported update field %S" field)))))
+    (chaplet-bd--ok (list "update" id flag value))))
+
+(defun chaplet-bd-dependency-add (id depends-on)
+  "Make bead ID depend on DEPENDS-ON.  Return t on success."
+  (chaplet-bd--ok (list "dep" "add" id depends-on)))
+
+(defun chaplet-bd-dependency-remove (id depends-on)
+  "Remove ID's dependency on DEPENDS-ON.  Return t on success."
+  (chaplet-bd--ok (list "dep" "remove" id depends-on)))
+
+(defun chaplet-bd-duplicate (id canonical)
+  "Mark bead ID as a duplicate of CANONICAL.  Return t on success."
+  (chaplet-bd--ok (list "duplicate" id "--of" canonical)))
+
+(defun chaplet-bd-supersede (id replacement)
+  "Mark bead ID as superseded by REPLACEMENT.  Return t on success."
+  (chaplet-bd--ok (list "supersede" id "--with" replacement)))
+
+(defun chaplet-bd-human-respond (id response)
+  "Respond to human bead ID and close it.  Return t on success."
+  (chaplet-bd--ok (list "human" "respond" id "--response" response)))
+
+(defun chaplet-bd-human-dismiss (id &optional reason)
+  "Dismiss human bead ID, optionally recording REASON.  Return t on success."
+  (chaplet-bd--ok (append (list "human" "dismiss" id)
+                          (and (not (string-empty-p (or reason "")))
+                               (list "--reason" reason)))))
 
 (provide 'chaplet-bd)
 ;;; chaplet-bd.el ends here

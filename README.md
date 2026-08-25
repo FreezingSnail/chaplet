@@ -79,21 +79,33 @@ can still be displayed as the group header.
 | `?` | Action menu (transient) |
 | `q` | Quit |
 
-Views: `inbox` (status=deferred + label=staged; the review queue), `deferred` (status=deferred regardless of label; the human-only/backlog pool), `open`, `in-progress`, `blocked`, `closed`, `all` (unfiltered).  Deferred beads are available in the dedicated `deferred` view; `all` is not their only visibility path.
+Views: `inbox` (status=deferred + label=staged; review queue), `human` (label=human; requests requiring a human response), `deferred` (status=deferred regardless of label; human-only/backlog pool), `open`, `in-progress`, `blocked`, `closed`, `all` (unfiltered). Deferred beads remain available in dedicated `deferred`; `all` is not their only visibility path.
 
 ### Action menu (transient)
 
-Pressing `?` over a bead opens a state-aware action popup.  Approve/reject
-review actions apply only to inbox/staged beads.  Plain deferred beads expose
-undefer instead of reject; comment and edit actions remain state-appropriate.
+Pressing `?` over a bead opens a state-aware lifecycle popup. Approve/reject
+apply only to inbox/staged beads; plain deferred beads expose undefer; closed
+beads expose reopen. Every bead exposes comments, core-field editing,
+claim/assign, priority and label updates, dependency management, and close
+(or reopen). Duplicate/supersede close the current bead after confirmation.
+Human-labelled beads additionally expose native `bd human respond` and
+dismiss actions.
 
 | Key | Effect |
 | --- | --- |
 | `a` | Approve (undefer) — inbox/staged beads |
 | `r` | Reject (comment + stays staged) — inbox/staged beads |
 | `u` | Undefer — plain deferred beads |
+| `C` / `A` | Claim / assign |
+| `x` / `o` | Close / reopen |
+| `=` / `S` | Duplicate / supersede (confirmation) |
 | `c` | Comment |
-| `e` | Edit design |
+| `e` / `E` | Edit design / core field |
+| `p` | Set priority |
+| `l` / `L` | Add / remove label |
+| `d` / `D` | Add / remove dependency |
+| `f` | Defer |
+| `h` / `H` | Human respond + close / dismiss — human-labelled beads |
 | `n` | New bead |
 | `g` | Refresh |
 | `v` | Switch view |
