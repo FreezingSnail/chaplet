@@ -127,7 +127,7 @@ for high fan-out DAGs."
   "Bind `[ID mouse-1]' (open) and `[ID mouse-2]' (dependents) for NODES.
 Replaces the bindings installed by the previous render."
   (dolist (key chaplet-graph--node-bindings)
-    (define-key chaplet-graph-mode-map key nil))
+    (chaplet-graph--bind key nil))
   (setq chaplet-graph--node-bindings
         (mapcan (lambda (n)
                   (let ((id (intern (plist-get n :id))))
@@ -135,10 +135,11 @@ Replaces the bindings installed by the previous render."
                           (vector id 'mouse-2))))
                 nodes))
   (dolist (key chaplet-graph--node-bindings)
-    (define-key chaplet-graph-mode-map key
-      (if (eq (aref key 1) 'mouse-1)
-          #'chaplet-graph--open-node
-        #'chaplet-graph--node-dependents))))
+    (chaplet-graph--bind
+     key
+     (if (eq (aref key 1) 'mouse-1)
+         #'chaplet-graph--open-node
+       #'chaplet-graph--node-dependents))))
 
 (defun chaplet-graph--clicked-id ()
   "Return the node id symbol of the clicked image-map hot-spot, or nil.
@@ -177,8 +178,7 @@ Extracted from `this-command-keys' — image-map clicks are composed as
 (defun chaplet-graph--text-node-line (node focus-id)
   "Return the one-line box text for NODE: `▶[id] title state ~'.
 FOCUS-ID nodes get a ▶ prefix.  Faces: id → `chaplet-id', state →
-`chaplet-state-*' (deferred → `chaplet-staged' — graph nodes carry no
-labels, so the staged pool is approximated by the deferred state).
+`chaplet-state-*' (staged deferred → `chaplet-staged').
 Ghost nodes append a `~' marker."
   (let* ((id (plist-get node :id))
          (focused (equal id focus-id))
@@ -187,7 +187,7 @@ Ghost nodes append a `~' marker."
          (title (chaplet-graph--text-truncate
                  (or (plist-get node :title) "")))
          (state (plist-get node :state))
-         (state-face (if (equal state "deferred")
+         (state-face (if (plist-get node :staged)
                          'chaplet-staged
                        (chaplet-state-face state)))
          (state-str (if state-face
@@ -539,13 +539,16 @@ With prefix arg (e.g. `C-u'), open the `open' view only."
 
 (defun chaplet-graph--node (bead)
   "Convert bead alist BEAD into a graph node plist.
-Returns (:id :title :state :type :priority :deps)."
-  (list :id (alist-get 'id bead)
-        :title (chaplet-graph--truncate (or (alist-get 'title bead) ""))
-        :state (alist-get 'status bead)
-        :type (alist-get 'issue_type bead)
-        :priority (alist-get 'priority bead)
-        :deps (alist-get 'dependencies bead)))
+Returns (:id :title :state :staged :type :priority :deps)."
+  (let ((status (alist-get 'status bead)))
+    (list :id (alist-get 'id bead)
+          :title (chaplet-graph--truncate (or (alist-get 'title bead) ""))
+          :state status
+          :staged (and (equal status "deferred")
+                        (member chaplet-staged-label (alist-get 'labels bead)))
+          :type (alist-get 'issue_type bead)
+          :priority (alist-get 'priority bead)
+          :deps (alist-get 'dependencies bead))))
 
 (defun chaplet-graph--nodes (beads)
   "Convert BEADS (bead alists) into graph node plists."
@@ -719,10 +722,23 @@ appended for unknown dependencies."
              (seq-max (mapcar (lambda (n) (+ (plist-get n :y) (plist-get n :h)))
                               nodes))))))
 
+(defun chaplet-graph--face-color (face fallback)
+  "Return effective foreground color for FACE, or FALLBACK."
+  (let ((fg (condition-case nil
+                (face-attribute face :foreground nil 'default)
+              (error nil))))
+    (if (and (stringp fg) (not (string= fg "unspecified-fg")))
+        fg
+      fallback)))
+
 (defun chaplet-graph--node-color (node)
-  "Return the SVG fill color for NODE from its state face."
-  (or (chaplet-state-color (plist-get node :state))
-      "#5c6370"))
+  "Return SVG fill color for NODE's staged or state face."
+  (if (plist-get node :staged)
+      (chaplet-graph--face-color
+       'chaplet-staged
+       (cdr (assq 'chaplet-staged chaplet-face--dark-palette)))
+    (or (chaplet-state-color (plist-get node :state))
+        "#5c6370")))
 
 (defun chaplet-graph--draw-node (svg node focused)
   "Draw NODE on SVG as a filled rect + id/title labels.

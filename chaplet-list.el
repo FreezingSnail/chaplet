@@ -31,13 +31,9 @@
     (chaplet-bd--filters->expr (chaplet-bd--view-filters view))))
 
 (defun chaplet-list--staged-p (bead)
-  "Return non-nil if BEAD is staged: status=deferred AND label=staged.
-`bd list --json' does not hydrate labels; when labels are absent, fall
-back to status=deferred as a documented approximation."
+  "Return non-nil if BEAD is deferred and has the staged label."
   (and (string= (alist-get 'status bead) "deferred")
-       (let ((labels (alist-get 'labels bead)))
-         (or (not (consp labels))
-             (member chaplet-staged-label labels)))))
+       (member chaplet-staged-label (alist-get 'labels bead))))
 
 (defun chaplet-list--filters->query (base filters)
   "Append FILTERS alist clauses to BASE query expr, joined by \" AND \"."
@@ -424,7 +420,7 @@ compile to a function call and signal `invalid-function' at runtime."
 (chaplet-list--bind (kbd "v") #'chaplet-list-set-view)
 (chaplet-list--bind (kbd "s") #'chaplet-list-graph)
 (chaplet-list--bind (kbd "q") #'quit-window)
-(define-key chaplet-list-mode-map [mouse-1] #'chaplet-list-open)
+(chaplet-list--bind [mouse-1] #'chaplet-list-open)
 
 ;;;###autoload
 (defun chaplet-list ()

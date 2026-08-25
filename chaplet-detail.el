@@ -108,28 +108,35 @@ Return the active major mode symbol."
       (chaplet-transient-comment chaplet-detail--id)
     (message "chaplet: comment action not yet wired (chaplet-transient)")))
 
+(defun chaplet-detail--staged-p ()
+  "Return non-nil when the current bead is a staged deferred bead."
+  (let ((id chaplet-detail--id))
+    (when (and (stringp id) (not (string-empty-p id)))
+      (let ((bead (chaplet-bd-show id)))
+        (and bead
+             (equal (alist-get 'status bead) "deferred")
+             (member chaplet-staged-label (alist-get 'labels bead)))))))
+
 (defun chaplet-detail-approve ()
-  "Approve the current bead (delegates to chaplet-transient when built)."
+  "Approve the current staged inbox bead, when transient is built."
   (interactive)
-  (if (fboundp 'chaplet-transient-approve)
-      (chaplet-transient-approve chaplet-detail--id)
-    (message "chaplet: approve action not yet wired (chaplet-transient)")))
+  (if (not (chaplet-detail--staged-p))
+      (user-error "chaplet: approve requires a staged deferred bead")
+    (if (fboundp 'chaplet-transient-approve)
+        (chaplet-transient-approve chaplet-detail--id)
+      (message "chaplet: approve action not yet wired (chaplet-transient)"))))
 
 (defun chaplet-detail-reject ()
-  "Reject the current bead (delegates to chaplet-transient when built)."
+  "Reject the current staged inbox bead, when transient is built."
   (interactive)
-  (if (fboundp 'chaplet-transient-reject)
-      (chaplet-transient-reject chaplet-detail--id)
-    (message "chaplet: reject action not yet wired (chaplet-transient)")))
+  (if (not (chaplet-detail--staged-p))
+      (user-error "chaplet: reject requires a staged deferred bead")
+    (if (fboundp 'chaplet-transient-reject)
+        (chaplet-transient-reject chaplet-detail--id)
+      (message "chaplet: reject action not yet wired (chaplet-transient)"))))
 
 (defvar chaplet-detail-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "q") #'chaplet-detail-quit)
-    (define-key map (kbd "g") #'chaplet-detail-refresh)
-    (define-key map (kbd "c") #'chaplet-detail-comment)
-    (define-key map (kbd "a") #'chaplet-detail-approve)
-    (define-key map (kbd "r") #'chaplet-detail-reject)
-    map)
+  (make-sparse-keymap)
   "Keymap for `chaplet-detail-mode'.")
 
 (defun chaplet-detail--bind (key cmd)
@@ -138,6 +145,7 @@ Mirrors `chaplet-list--bind': also binds in evil normal and motion
 states (so motion keys are usable there).  Uses the evil-define-key*
 *function* (not the evil-define-key macro) so this file byte-compiles
 safely when evil isn't installed."
+  (define-key chaplet-detail-mode-map key cmd)
   (when (and (featurep 'evil) (fboundp 'evil-define-key*))
     (evil-define-key* 'normal chaplet-detail-mode-map key cmd)
     (evil-define-key* 'motion chaplet-detail-mode-map key cmd)))

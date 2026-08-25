@@ -52,7 +52,7 @@ otherwise `~/.emacs.d/init.el`. Idempotent (marker-based, re-run anytime).
 
 | Command | Effect |
 | --- | --- |
-| `M-x chaplet` | Open the bead browser on the **inbox** (staged) view |
+| `M-x chaplet` | Open the bead browser on the **inbox** (status=deferred + label=staged) view |
 | `M-x chaplet-graph` | Open the dependency graph |
 | `M-x chaplet-mode` | Global minor mode (enables the `C-c b` prefix) |
 
@@ -79,16 +79,19 @@ can still be displayed as the group header.
 | `?` | Action menu (transient) |
 | `q` | Quit |
 
-Views: `inbox` (staged), `open`, `in-progress`, `blocked`, `closed`, `all`.
+Views: `inbox` (status=deferred + label=staged; the review queue), `deferred` (status=deferred regardless of label; the human-only/backlog pool), `open`, `in-progress`, `blocked`, `closed`, `all` (unfiltered).  Deferred beads are available in the dedicated `deferred` view; `all` is not their only visibility path.
 
 ### Action menu (transient)
 
-Pressing `?` over a bead opens a state-aware action popup:
+Pressing `?` over a bead opens a state-aware action popup.  Approve/reject
+review actions apply only to inbox/staged beads.  Plain deferred beads expose
+undefer instead of reject; comment and edit actions remain state-appropriate.
 
 | Key | Effect |
 | --- | --- |
-| `a` | Approve (undefer) — staged beads |
-| `r` | Reject (comment + stays staged) — staged beads |
+| `a` | Approve (undefer) — inbox/staged beads |
+| `r` | Reject (comment + stays staged) — inbox/staged beads |
+| `u` | Undefer — plain deferred beads |
 | `c` | Comment |
 | `e` | Edit design |
 | `n` | New bead |
@@ -118,8 +121,8 @@ navigable ASCII gutter-tree (same keys).
 | `q` | Quit |
 | `g` | Refresh |
 | `c` | Comment |
-| `a` | Approve |
-| `r` | Reject |
+| `a` | Approve — staged inbox beads |
+| `r` | Reject — staged inbox beads |
 
 ## Configuration
 

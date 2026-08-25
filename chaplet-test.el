@@ -38,10 +38,12 @@
   "Canonical view table exposes filters and names."
   (should (equal (chaplet-bd--view-filters 'inbox)
                  '((:status . "deferred") (:label . "staged"))))
+  (should (equal (chaplet-bd--view-filters 'deferred)
+                 '((:status . "deferred"))))
   (should (equal (chaplet-bd--view-filters 'all) '((:all . t))))
   (should (equal (chaplet-bd--view-filters 'bogus) nil))
   (should (equal (chaplet-bd--view-names)
-                 '(inbox open in-progress blocked closed all))))
+                 '(inbox deferred open in-progress blocked closed all))))
 
 (ert-deftest chaplet-test-bd-filters->expr ()
   "`chaplet-bd--filters->expr' composes query clauses, skipping booleans."
@@ -149,16 +151,17 @@
     (should (file-equal-p (chaplet-bd--root) chaplet-test--root))))
 
 (ert-deftest chaplet-test-list-staged-p ()
-  "`chaplet-list--staged-p' detects staged beads."
+  "`chaplet-list--staged-p' requires the staged label."
+  (should-not (chaplet-list--staged-p
+               '((status . "deferred") (labels . ("human")))))
   (should (chaplet-list--staged-p
            '((status . "deferred") (labels . ("staged")))))
   (should-not (chaplet-list--staged-p
-               '((status . "deferred") (labels . ("x")))))
+               '((status . "deferred") (labels . nil))))
+  (should-not (chaplet-list--staged-p
+               '((status . "deferred") (labels . ()))))
   (should-not (chaplet-list--staged-p
                '((status . "open") (labels . ("staged")))))
-  ;; labels absent (real bd list JSON) -> approximate deferred.
-  (should (chaplet-list--staged-p
-           '((status . "deferred") (labels . nil))))
   (should-not (chaplet-list--staged-p
                '((status . "open") (labels . nil)))))
 
@@ -404,9 +407,11 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
       (should (string-match-p "missing-dep" (buffer-string))))))
 
 (ert-deftest chaplet-test-transient-actions-for-state ()
-  "`chaplet-transient--actions-for-state' maps states to allowed actions."
-  (should (equal (chaplet-transient--actions-for-state "deferred")
+  "`chaplet-transient--actions-for-state' maps state and stagedness to actions."
+  (should (equal (chaplet-transient--actions-for-state "deferred" t)
                  '(approve reject comment edit-design)))
+  (should (equal (chaplet-transient--actions-for-state "deferred" nil)
+                 '(comment edit-design undefer)))
   (should (equal (chaplet-transient--actions-for-state "open")
                  '(comment edit-design new)))
   (should (equal (chaplet-transient--actions-for-state "in_progress")
@@ -417,18 +422,26 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
                  '(comment)))
   (should (equal (chaplet-transient--actions-for-state nil)
                  '(comment)))
-  (should (memq 'approve (chaplet-transient--actions-for-state "deferred")))
-  (should (memq 'reject (chaplet-transient--actions-for-state "deferred")))
-  (should-not (memq 'approve (chaplet-transient--actions-for-state "closed")))
-  (should-not (memq 'new (chaplet-transient--actions-for-state "closed"))))
+  (should (memq 'approve (chaplet-transient--actions-for-state "deferred" t)))
+  (should (memq 'reject (chaplet-transient--actions-for-state "deferred" t)))
+  (should (memq 'undefer (chaplet-transient--actions-for-state "deferred" nil)))
+  (should-not (memq 'reject (chaplet-transient--actions-for-state "deferred" nil)))
+  (should-not (memq 'approve (chaplet-transient--actions-for-state "closed"))))
 
 (ert-deftest chaplet-test-transient-action-visible-p ()
-  "`chaplet-transient--action-visible-p' respects the captured state."
-  (let ((chaplet-transient--state "deferred"))
+  "`chaplet-transient--action-visible-p' respects state and stagedness."
+  (let ((chaplet-transient--state "deferred")
+        (chaplet-transient--staged-p t))
     (should (chaplet-transient--action-visible-p 'approve))
     (should (chaplet-transient--action-visible-p 'reject))
+    (should-not (chaplet-transient--action-visible-p 'undefer))
     (should-not (chaplet-transient--action-visible-p 'new)))
-  (let ((chaplet-transient--state "closed"))
+  (let ((chaplet-transient--state "deferred")
+        (chaplet-transient--staged-p nil))
+    (should (chaplet-transient--action-visible-p 'undefer))
+    (should-not (chaplet-transient--action-visible-p 'reject)))
+  (let ((chaplet-transient--state "closed")
+        (chaplet-transient--staged-p nil))
     (should (chaplet-transient--action-visible-p 'comment))
     (should-not (chaplet-transient--action-visible-p 'approve))
     (should-not (chaplet-transient--action-visible-p 'edit-design))))
@@ -1063,7 +1076,8 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
         (setq-local chaplet-graph--view 'all)
         (call-interactively #'chaplet-graph-set-view)
         (should (equal prompt-collection
-                       '("inbox" "open" "in-progress" "blocked" "closed" "all")))
+                       '("inbox" "deferred" "open" "in-progress"
+                         "blocked" "closed" "all")))
         (should (eq chaplet-graph--view 'in-progress))))))
 
 (ert-deftest chaplet-test-graph-default-view ()
@@ -1256,7 +1270,7 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
   '(((id . "bd-1") (title . "one") (status . "open") (priority . 2)
      (issue_type . "task") (dependencies . nil))
     ((id . "bd-2") (title . "two") (status . "deferred") (priority . 1)
-     (issue_type . "bug") (dependencies . ("bd-1")))
+     (issue_type . "bug") (labels . ("staged")) (dependencies . ("bd-1")))
     ((id . "bd-3") (title . "three") (status . "blocked") (priority . 0)
      (issue_type . "epic") (dependencies . ("bd-2" "missing-dep"))))
   "Fake bead alists for graph pipeline tests (one unknown dep).")
@@ -1278,6 +1292,35 @@ Uses the single shared `*chaplet*` buffer (no per-view buffers)."
       (should (equal (plist-get n :type) "task"))
       (should (equal (plist-get n :priority) 2))
       (should (equal (plist-get n :deps) nil)))))
+
+(ert-deftest chaplet-test-graph-staged-metadata-and-faces ()
+  "Graph preserves staged labels and selects distinct deferred faces."
+  (let* ((staged (car (chaplet-graph--nodes
+                       '(((id . "staged") (title . "staged")
+                          (status . "deferred") (labels . ("staged")))))))
+         (plain (car (chaplet-graph--nodes
+                      '(((id . "plain") (title . "plain")
+                         (status . "deferred") (labels . nil)))))))
+    (should (plist-get staged :staged))
+    (should-not (plist-get plain :staged))
+    (let ((staged-line (chaplet-graph--text-node-line staged nil))
+          (plain-line (chaplet-graph--text-node-line plain nil)))
+      (should (eq (get-text-property
+                   (1- (length staged-line)) 'face staged-line)
+                  'chaplet-staged))
+      (should (eq (get-text-property
+                   (1- (length plain-line)) 'face plain-line)
+                  'chaplet-state-deferred)))
+    (cl-letf (((symbol-function 'face-attribute)
+               (lambda (face attr &optional _frame _inherit)
+                 (when (and (eq attr :foreground)
+                            (eq face 'chaplet-staged))
+                   "#staged"))))
+      (should (equal (chaplet-graph--node-color staged) "#staged")))
+    (cl-letf (((symbol-function 'chaplet-state-color)
+               (lambda (state)
+                 (when (equal state "deferred") "#deferred"))))
+      (should (equal (chaplet-graph--node-color plain) "#deferred")))))
 
 (ert-deftest chaplet-test-graph-title-truncation ()
   "Titles longer than `chaplet-graph--title-max' are truncated."
@@ -2170,3 +2213,35 @@ reports the incomplete command instead."
 
 (provide 'chaplet-test)
 ;;; chaplet-test.el ends here
+
+
+(ert-deftest chaplet-test-detail-bind-keys ()
+  "Detail commands are installed in the plain minor-mode keymap."
+  (dolist (binding '(((kbd "q") . chaplet-detail-quit)
+                     ((kbd "g") . chaplet-detail-refresh)
+                     ((kbd "c") . chaplet-detail-comment)
+                     ((kbd "a") . chaplet-detail-approve)
+                     ((kbd "r") . chaplet-detail-reject)))
+    (should (eq (lookup-key chaplet-detail-mode-map (eval (car binding)))
+                (cdr binding)))))
+
+(ert-deftest chaplet-test-detail-bind-evil ()
+  "Detail commands also bind in Evil normal and motion states."
+  (let (called)
+    (cl-letf (((symbol-function 'featurep) (lambda (feature) (eq feature 'evil)))
+              ((symbol-function 'evil-define-key*)
+               (lambda (state _map _key _command) (push state called))))
+      (chaplet-detail--bind (kbd "x") #'ignore))
+    (should (= (length called) 2))
+    (should (memq 'normal called))
+    (should (memq 'motion called))))
+
+
+(ert-deftest chaplet-test-detail-review-requires-staged ()
+  "Detail review actions reject plain deferred beads."
+  (let ((chaplet-detail--id "bd-plain"))
+    (cl-letf (((symbol-function 'chaplet-bd-show)
+               (lambda (_id)
+                 '((id . "bd-plain") (status . "deferred") (labels . nil)))))
+      (should-error (chaplet-detail-approve) :type 'user-error)
+      (should-error (chaplet-detail-reject) :type 'user-error))))

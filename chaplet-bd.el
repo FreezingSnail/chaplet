@@ -118,6 +118,7 @@ this label so it leaves the inbox even if it stays deferred.")
 
 (defconst chaplet-bd--views
   `((inbox . ((:status . "deferred") (:label . ,chaplet-staged-label)))
+    (deferred . ((:status . "deferred")))
     (open . ((:status . "open")))
     (in-progress . ((:status . "in_progress")))
     (blocked . ((:status . "blocked")))

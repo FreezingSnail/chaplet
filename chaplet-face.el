@@ -19,7 +19,7 @@
 
 (defface chaplet-state-deferred
   '((t :foreground "#d19a66" :background "#3d2e1a" :box t))
-  "Face for deferred (staged) beads."
+  "Face for deferred beads."
   :group 'chaplet)
 
 (defface chaplet-state-in-progress
