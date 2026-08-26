@@ -1,9 +1,8 @@
 ;;; chaplet-transient.el --- magit-style action menus per bead state -*- lexical-binding: t; -*-
 
 ;; Transient (magit-style) dispatch popup over the bead at point.  The menu
-;; is tailored to the bead's state: staged deferred rows get approve/reject,
-;; plain deferred rows get undefer/comment/edit, open rows get comment/edit/new,
-;; everything else is comment-only.  Write actions refresh the list afterwards.
+;; is tailored to deferred rows: every deferred bead gets one approve action;
+;; staged rows additionally get reject.  Write actions refresh the list afterwards.
 ;; `?' in `chaplet-list-mode' opens it.
 
 (require 'chaplet-bd)
@@ -42,7 +41,7 @@ be reopened.  Staged and human-specific actions remain state-aware."
               '(reopen)
             '(claim defer close duplicate supersede))
           (pcase state
-            ("deferred" (if staged-p '(approve reject) '(undefer)))
+            ("deferred" (append '(approve) (and staged-p '(reject))))
             (_ nil))
           (and human-p '(human-respond human-dismiss))))
 
@@ -86,10 +85,7 @@ See `chaplet-refresh-all'."
       (chaplet-transient--refresh))))
 
 (defun chaplet-approve (&optional id)
-  "Approve (undefer) the bead at point, strip its staged label, refresh.
-Approve flips a staged bead out of the inbox (status=deferred AND
-label=staged): undefer restores it to open and label removal keeps it
-out of the deferred+staged query."
+  "Move deferred bead at point to open and clear any staged label, refresh."
   (interactive)
   (let ((id (or id (chaplet-transient--id-at-point))))
     (when id
@@ -302,8 +298,6 @@ Refreshes all chaplet buffers afterwards."
     :if (lambda () (chaplet-transient--action-visible-p 'approve)))
    ("r" "reject" chaplet-reject
     :if (lambda () (chaplet-transient--action-visible-p 'reject)))
-   ("u" "undefer" chaplet-undefer
-    :if (lambda () (chaplet-transient--action-visible-p 'undefer)))
    ("C" "claim" chaplet-claim
     :if (lambda () (chaplet-transient--action-visible-p 'claim)))
    ("A" "assign" chaplet-assign

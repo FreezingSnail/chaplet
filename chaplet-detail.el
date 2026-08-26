@@ -108,20 +108,23 @@ Return the active major mode symbol."
       (chaplet-transient-comment chaplet-detail--id)
     (message "chaplet: comment action not yet wired (chaplet-transient)")))
 
+(defun chaplet-detail--deferred-p ()
+  "Return non-nil when the current bead is deferred."
+  (let ((id chaplet-detail--id))
+    (when (and (stringp id) (not (string-empty-p id)))
+      (equal (alist-get 'status (chaplet-bd-show id)) "deferred"))))
+
 (defun chaplet-detail--staged-p ()
   "Return non-nil when the current bead is a staged deferred bead."
   (let ((id chaplet-detail--id))
-    (when (and (stringp id) (not (string-empty-p id)))
-      (let ((bead (chaplet-bd-show id)))
-        (and bead
-             (equal (alist-get 'status bead) "deferred")
-             (member chaplet-staged-label (alist-get 'labels bead)))))))
+    (when (and (chaplet-detail--deferred-p) id)
+      (member chaplet-staged-label (alist-get 'labels (chaplet-bd-show id))))))
 
 (defun chaplet-detail-approve ()
-  "Approve the current staged inbox bead, when transient is built."
+  "Approve the current deferred bead, when transient is built."
   (interactive)
-  (if (not (chaplet-detail--staged-p))
-      (user-error "chaplet: approve requires a staged deferred bead")
+  (if (not (chaplet-detail--deferred-p))
+      (user-error "chaplet: approve requires a deferred bead")
     (if (fboundp 'chaplet-transient-approve)
         (chaplet-transient-approve chaplet-detail--id)
       (message "chaplet: approve action not yet wired (chaplet-transient)"))))

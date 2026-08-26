@@ -37,7 +37,7 @@
 (ert-deftest chaplet-test-bd-views ()
   "Canonical view table exposes filters and names."
   (should (equal (chaplet-bd--view-filters 'inbox)
-                 '((:status . "deferred") (:label . "staged"))))
+                 '((:status . "deferred"))))
   (should (equal (chaplet-bd--view-filters 'human)
                  '((:label . "human"))))
   (should (equal (chaplet-bd--view-filters 'deferred)
@@ -170,7 +170,7 @@
 (ert-deftest chaplet-test-list-view-query ()
   "`chaplet-list--view-query' maps views to bd query expressions."
   (should (equal (chaplet-list--view-query 'inbox)
-                 "status=deferred AND label=staged"))
+                 "status=deferred"))
   (should (equal (chaplet-list--view-query 'open) "status=open"))
   (should (equal (chaplet-list--view-query 'in-progress) "status=in_progress"))
   (should (equal (chaplet-list--view-query 'blocked) "status=blocked"))
@@ -421,7 +421,8 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
     (should (memq 'reject staged))
     (should-not (memq 'undefer staged)))
   (let ((deferred (chaplet-transient--actions-for-state "deferred" nil)))
-    (should (memq 'undefer deferred))
+    (should (memq 'approve deferred))
+    (should-not (memq 'undefer deferred))
     (should-not (memq 'reject deferred)))
   (let ((closed (chaplet-transient--actions-for-state "closed" nil)))
     (should (memq 'reopen closed))
@@ -442,7 +443,8 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
     (should (chaplet-transient--action-visible-p 'new)))
   (let ((chaplet-transient--state "deferred")
         (chaplet-transient--staged-p nil))
-    (should (chaplet-transient--action-visible-p 'undefer))
+    (should (chaplet-transient--action-visible-p 'approve))
+    (should-not (chaplet-transient--action-visible-p 'undefer))
     (should-not (chaplet-transient--action-visible-p 'reject)))
   (let ((chaplet-transient--state "closed")
         (chaplet-transient--staged-p nil))
@@ -2241,13 +2243,16 @@ reports the incomplete command instead."
     (should (memq 'motion called))))
 
 
-(ert-deftest chaplet-test-detail-review-requires-staged ()
-  "Detail review actions reject plain deferred beads."
-  (let ((chaplet-detail--id "bd-plain"))
+(ert-deftest chaplet-test-detail-approve-any-deferred ()
+  "Detail approval accepts an unstaged deferred bead; reject remains staged-only."
+  (let ((chaplet-detail--id "bd-plain") approved)
     (cl-letf (((symbol-function 'chaplet-bd-show)
                (lambda (_id)
-                 '((id . "bd-plain") (status . "deferred") (labels . nil)))))
-      (should-error (chaplet-detail-approve) :type 'user-error)
+                 '((id . "bd-plain") (status . "deferred") (labels . nil))))
+              ((symbol-function 'chaplet-transient-approve)
+               (lambda (id) (setq approved id))))
+      (chaplet-detail-approve)
+      (should (equal approved "bd-plain"))
       (should-error (chaplet-detail-reject) :type 'user-error))))
 
 

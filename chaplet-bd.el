@@ -112,15 +112,13 @@ Value filters (:status, :type, :priority, :label, :limit) emit --flag=value."
 ;;; Views
 
 (defconst chaplet-staged-label "staged"
-  "Label marking a bead as staged (deferred, awaiting review).
-The inbox view is the set of staged beads; approving one must strip
-this label so it leaves the inbox even if it stays deferred.")
+  "Label marking a deferred bead as staged for reject/review context.")
 
 (defconst chaplet-human-label "human"
   "Label marking a bead as requiring human input.")
 
 (defconst chaplet-bd--views
-  `((inbox . ((:status . "deferred") (:label . ,chaplet-staged-label)))
+  `((inbox . ((:status . "deferred")))
     (human . ((:label . ,chaplet-human-label)))
     (deferred . ((:status . "deferred")))
     (open . ((:status . "open")))

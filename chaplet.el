@@ -1,7 +1,7 @@
 ;;; chaplet.el --- entry point + global minor-mode + keymap -*- lexical-binding: t; -*-
 
 ;; Single entry point for the chaplet bead browser.  Requires every module,
-;; exposes `M-x chaplet' (open the staged inbox), a global minor mode
+;; exposes `M-x chaplet' (open the deferred inbox), a global minor mode
 ;; `chaplet-mode', and its keymap (`C-c b b' → chaplet, `C-c b s' → graph).
 
 (require 'chaplet-face)
@@ -17,7 +17,7 @@
 
 ;;;###autoload
 (defun chaplet ()
-  "Open the chaplet bead browser on the inbox (staged) view."
+  "Open the chaplet bead browser on the deferred inbox view."
   (interactive)
   (chaplet-list-set-view 'inbox))
 

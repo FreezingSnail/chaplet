@@ -424,7 +424,7 @@ compile to a function call and signal `invalid-function' at runtime."
 
 ;;;###autoload
 (defun chaplet-list ()
-  "Open the chaplet bead browser on the inbox (staged) view."
+  "Open the chaplet bead browser on the deferred inbox view."
   (interactive)
   (chaplet-list-set-view 'inbox))
 

@@ -52,7 +52,7 @@ otherwise `~/.emacs.d/init.el`. Idempotent (marker-based, re-run anytime).
 
 | Command | Effect |
 | --- | --- |
-| `M-x chaplet` | Open the bead browser on the **inbox** (status=deferred + label=staged) view |
+| `M-x chaplet` | Open the bead browser on the **inbox** (all deferred beads) view |
 | `M-x chaplet-graph` | Open the dependency graph |
 | `M-x chaplet-mode` | Global minor mode (enables the `C-c b` prefix) |
 
@@ -79,13 +79,13 @@ can still be displayed as the group header.
 | `?` | Action menu (transient) |
 | `q` | Quit |
 
-Views: `inbox` (status=deferred + label=staged; review queue), `human` (label=human; requests requiring a human response), `deferred` (status=deferred regardless of label; human-only/backlog pool), `open`, `in-progress`, `blocked`, `closed`, `all` (unfiltered). Deferred beads remain available in dedicated `deferred`; `all` is not their only visibility path.
+Views: `inbox` (status=deferred; all deferred work awaiting fleet pickup), `human` (label=human; requests requiring a human response), `deferred` (same deferred pool, for direct selection), `open`, `in-progress`, `blocked`, `closed`, `all` (unfiltered).
 
 ### Action menu (transient)
 
-Pressing `?` over a bead opens a state-aware lifecycle popup. Approve/reject
-apply only to inbox/staged beads; plain deferred beads expose undefer; closed
-beads expose reopen. Every bead exposes comments, core-field editing,
+Pressing `?` over a bead opens a state-aware lifecycle popup. Approve moves
+every deferred bead to open for fleet pickup; reject applies only to staged
+review beads. Closed beads expose reopen. Every bead exposes comments, core-field editing,
 claim/assign, priority and label updates, dependency management, and close
 (or reopen). Duplicate/supersede close the current bead after confirmation.
 Human-labelled beads additionally expose native `bd human respond` and
@@ -93,9 +93,8 @@ dismiss actions.
 
 | Key | Effect |
 | --- | --- |
-| `a` | Approve (undefer) — inbox/staged beads |
-| `r` | Reject (comment + stays staged) — inbox/staged beads |
-| `u` | Undefer — plain deferred beads |
+| `a` | Approve (undefer) — every deferred bead |
+| `r` | Reject (comment + stays staged) — staged review beads |
 | `C` / `A` | Claim / assign |
 | `x` / `o` | Close / reopen |
 | `=` / `S` | Duplicate / supersede (confirmation) |
@@ -133,7 +132,7 @@ navigable ASCII gutter-tree (same keys).
 | `q` | Quit |
 | `g` | Refresh |
 | `c` | Comment |
-| `a` | Approve — staged inbox beads |
+| `a` | Approve — deferred beads |
 | `r` | Reject — staged inbox beads |
 
 ## Configuration
