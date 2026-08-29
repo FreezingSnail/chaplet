@@ -23,6 +23,16 @@
   (expand-file-name "test/fake-bd" chaplet-test--repo-root)
   "Absolute path to the committed fake bd script.")
 
+(defvar chaplet-test--fake-dot
+  (expand-file-name "test/fake-dot" chaplet-test--repo-root)
+  "Absolute path to the committed fake dot script.")
+
+(ert-deftest chaplet-test-shared-doubles ()
+  "Shared test doubles resolve from the repository root."
+  (dolist (double (list chaplet-test--fake-bd chaplet-test--fake-dot))
+    (should (file-executable-p double))
+    (should-not (file-in-directory-p double chaplet-test--root))))
+
 (ert-deftest chaplet-test-bd-filters->args ()
   "Filters map to correct bd CLI args."
   (should (equal (chaplet-bd--filters->args nil) nil))
