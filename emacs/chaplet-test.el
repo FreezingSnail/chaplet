@@ -13,10 +13,14 @@
 
 (defvar chaplet-test--root
   (file-name-directory (or load-file-name buffer-file-name default-directory))
-  "Directory containing chaplet-test.el (repo root).")
+  "Directory containing chaplet-test.el (plugin root).")
+
+(defvar chaplet-test--repo-root
+  (file-name-directory (directory-file-name chaplet-test--root))
+  "Repository root containing the shared test fixtures.")
 
 (defvar chaplet-test--fake-bd
-  (expand-file-name "test/fake-bd" chaplet-test--root)
+  (expand-file-name "test/fake-bd" chaplet-test--repo-root)
   "Absolute path to the committed fake bd script.")
 
 (ert-deftest chaplet-test-bd-filters->args ()
@@ -148,9 +152,9 @@
       (should (equal captured '("defer" "bd-1"))))))
 
 (ert-deftest chaplet-test-bd-root ()
-  "`chaplet-bd--root' returns the chaplet repo root when run there."
+  "`chaplet-bd--root' returns the repository root from the plugin directory."
   (let ((default-directory chaplet-test--root))
-    (should (file-equal-p (chaplet-bd--root) chaplet-test--root))))
+    (should (file-equal-p (chaplet-bd--root) chaplet-test--repo-root))))
 
 (ert-deftest chaplet-test-list-staged-p ()
   "`chaplet-list--staged-p' requires the staged label."
@@ -811,7 +815,7 @@ call executes."
 ;;; Integration: full-loop + cross-module smoke (tag chaplet)
 
 (defvar chaplet-test--fake-bd-state
-  (expand-file-name "test/.fake-bd-state" chaplet-test--root)
+  (expand-file-name "test/.fake-bd-state" chaplet-test--repo-root)
   "State file used by fake-bd in stateful (full-loop) mode.")
 
 (defun chaplet-test--fresh-state ()
