@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # check.sh — single entry point: byte-compile + ERT + optional probe.
 #
-# Usage (from repository root):
-#   emacs/check.sh                     # clean + compile + tests
-#   emacs/check.sh -c                  # compile only
-#   emacs/check.sh -k                  # skip clean (keep .elc)
-#   emacs/check.sh probe emacs/probes/foo.el # + probe file (exploratory ERT tests)
+# Usage (from emacs/):
+#   ./check.sh                     # clean + compile + tests
+#   ./check.sh -c                  # compile only
+#   ./check.sh -k                  # skip clean (keep .elc)
+#   ./check.sh probe probes/foo.el # + probe file (exploratory ERT tests)
 #
 # Exit codes:
 #   0  green
