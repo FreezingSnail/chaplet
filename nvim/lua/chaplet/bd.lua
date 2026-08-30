@@ -164,4 +164,80 @@ function M.invoke(args)
   return { code = vim.v.shell_error, stdout = vim.fn.system(argv) }
 end
 
+M.STAGED_LABEL = "staged"
+M.HUMAN_LABEL = "human"
+M.EMIT_ORDER = { "status", "type", "priority", "label", "limit", "all", "ready", "deferred" }
+
+M.views = {
+  { name = "inbox", filters = { status = "deferred" } },
+  { name = "human", filters = { label = M.HUMAN_LABEL } },
+  { name = "deferred", filters = { status = "deferred" } },
+  { name = "open", filters = { status = "open" } },
+  { name = "in-progress", filters = { status = "in_progress" } },
+  { name = "blocked", filters = { status = "blocked" } },
+  { name = "closed", filters = { status = "closed" } },
+  { name = "all", filters = { all = true } },
+}
+
+local value_filters = { status = true, type = true, priority = true, label = true, limit = true }
+local boolean_filters = { all = true, ready = true, deferred = true }
+local expr_filters = { status = true, type = true, priority = true, label = true }
+
+local function reject_unknown_filters(filters)
+  for key in pairs(filters) do
+    if not value_filters[key] and not boolean_filters[key] then
+      error("chaplet-bd: unknown filter " .. key)
+    end
+  end
+end
+
+function M.view_names()
+  local names = {}
+  for _, view in ipairs(M.views) do
+    table.insert(names, view.name)
+  end
+  return names
+end
+
+function M.view_filters(name)
+  for _, view in ipairs(M.views) do
+    if view.name == name then
+      return view.filters
+    end
+  end
+end
+
+function M.filters_to_args(filters)
+  if filters == nil then
+    return {}
+  end
+
+  reject_unknown_filters(filters)
+  local args = {}
+  for _, key in ipairs(M.EMIT_ORDER) do
+    local value = filters[key]
+    if value_filters[key] and value ~= nil then
+      table.insert(args, "--" .. key .. "=" .. tostring(value))
+    elseif boolean_filters[key] and value then
+      table.insert(args, "--" .. key)
+    end
+  end
+  return args
+end
+
+function M.filters_to_expr(filters)
+  if filters == nil then
+    return ""
+  end
+
+  reject_unknown_filters(filters)
+  local clauses = {}
+  for _, key in ipairs(M.EMIT_ORDER) do
+    if expr_filters[key] and filters[key] ~= nil then
+      table.insert(clauses, key .. "=" .. tostring(filters[key]))
+    end
+  end
+  return table.concat(clauses, " AND ")
+end
+
 return M

@@ -74,6 +74,39 @@
                   '((:status . "open") (:all . t) (:type . "task")))
                  "status=open AND type=task")))
 
+(ert-deftest chaplet-test-bd-views-fixture ()
+  "Canonical views and filter translations match the shared fixture."
+  (let* ((fixture-path (expand-file-name "test/views.json" chaplet-test--repo-root))
+         (fixture (json-parse-string
+                   (with-temp-buffer
+                     (insert-file-contents fixture-path)
+                     (buffer-string))
+                   :object-type 'alist :array-type 'list
+                   :null-object nil :false-object nil))
+         (filters (lambda (object)
+                    (mapcar (lambda (entry)
+                              (cons (intern (concat ":" (symbol-name (car entry))))
+                                    (cdr entry)))
+                            object)))
+         (views (alist-get 'views fixture)))
+    (should (equal chaplet-bd--views
+                   (mapcar (lambda (view)
+                             (cons (intern (alist-get 'name view))
+                                   (funcall filters (alist-get 'filters view))))
+                           views)))
+    (should (equal (chaplet-bd--view-names)
+                   (mapcar (lambda (view) (intern (alist-get 'name view))) views)))
+    (dolist (case (alist-get 'args fixture))
+      (should (equal (chaplet-bd--filters->args
+                      (funcall filters (alist-get 'filters case)))
+                     (alist-get 'expect case))))
+    (dolist (case (alist-get 'expr fixture))
+      (should (equal (chaplet-bd--filters->expr
+                      (funcall filters (alist-get 'filters case)))
+                     (alist-get 'expect case))))
+    (should-error (chaplet-bd--filters->args '((:unknown . t))))
+    (should-error (chaplet-bd--filters->expr '((:unknown . t))))))
+
 (ert-deftest chaplet-test-bd-list ()
   "`chaplet-bd-list' returns parsed bead alists."
   (let ((chaplet-bd-program chaplet-test--fake-bd))

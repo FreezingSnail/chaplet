@@ -1,0 +1,39 @@
+{
+  "views": [
+    { "name": "inbox", "filters": { "status": "deferred" } },
+    { "name": "human", "filters": { "label": "human" } },
+    { "name": "deferred", "filters": { "status": "deferred" } },
+    { "name": "open", "filters": { "status": "open" } },
+    { "name": "in-progress", "filters": { "status": "in_progress" } },
+    { "name": "blocked", "filters": { "status": "blocked" } },
+    { "name": "closed", "filters": { "status": "closed" } },
+    { "name": "all", "filters": { "all": true } }
+  ],
+  "args": [
+    { "filters": { "status": "deferred" }, "expect": ["--status=deferred"] },
+    { "filters": { "label": "human" }, "expect": ["--label=human"] },
+    { "filters": { "status": "deferred" }, "expect": ["--status=deferred"] },
+    { "filters": { "status": "open" }, "expect": ["--status=open"] },
+    { "filters": { "status": "in_progress" }, "expect": ["--status=in_progress"] },
+    { "filters": { "status": "blocked" }, "expect": ["--status=blocked"] },
+    { "filters": { "status": "closed" }, "expect": ["--status=closed"] },
+    { "filters": { "all": true }, "expect": ["--all"] },
+    { "filters": { "status": "open", "type": "task", "priority": 2, "label": "x", "limit": 5 }, "expect": ["--status=open", "--type=task", "--priority=2", "--label=x", "--limit=5"] },
+    { "filters": { "status": "open", "all": true, "ready": true, "deferred": true }, "expect": ["--status=open", "--all", "--ready", "--deferred"] },
+    { "filters": { "all": false }, "expect": [] },
+    { "filters": { "limit": 12 }, "expect": ["--limit=12"] }
+  ],
+  "expr": [
+    { "filters": { "status": "deferred" }, "expect": "status=deferred" },
+    { "filters": { "label": "human" }, "expect": "label=human" },
+    { "filters": { "status": "deferred" }, "expect": "status=deferred" },
+    { "filters": { "status": "open" }, "expect": "status=open" },
+    { "filters": { "status": "in_progress" }, "expect": "status=in_progress" },
+    { "filters": { "status": "blocked" }, "expect": "status=blocked" },
+    { "filters": { "status": "closed" }, "expect": "status=closed" },
+    { "filters": { "all": true }, "expect": "" },
+    { "filters": { "status": "open", "type": "task", "priority": 2, "label": "x" }, "expect": "status=open AND type=task AND priority=2 AND label=x" },
+    { "filters": { "status": "open", "all": true, "ready": true, "deferred": true }, "expect": "status=open" },
+    { "filters": { "all": false }, "expect": "" }
+  ]
+}
