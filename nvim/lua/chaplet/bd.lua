@@ -106,6 +106,34 @@ local function valid_args(args)
 
   local json_lengths = { query = 3, show = 4 }
   local required_length = args[2] == "--json" and json_lengths[args[1]]
+  local write_lengths = {
+    dep = 4,
+    duplicate = 4,
+    supersede = 4,
+  }
+  local required_positions = {
+    dep = { 2, 3, 4 },
+    duplicate = { 2, 3, 4 },
+    supersede = { 2, 3, 4 },
+  }
+  if args[1] == "human" then
+    local subcommand = args[2]
+    required_length = ({ respond = 5, dismiss = 3 })[subcommand]
+    required_positions = ({
+      respond = { 3, 4, 5 },
+      dismiss = { 3 },
+    })[subcommand]
+  else
+    required_length = required_length or write_lengths[args[1]]
+    required_positions = required_positions[args[1]]
+  end
+  if required_positions then
+    for _, position in ipairs(required_positions) do
+      if args[position] == nil then
+        return false
+      end
+    end
+  end
   if required_length and #args < required_length then
     return false
   end
@@ -387,6 +415,37 @@ end
 
 function M.reopen(id, reason)
   return lifecycle_with_reason("reopen", id, reason)
+end
+
+function M.dependency_add(id, depends_on)
+  return M._ok({ "dep", "add", id, depends_on })
+end
+
+function M.dependency_remove(id, depends_on)
+  return M._ok({ "dep", "remove", id, depends_on })
+end
+
+function M.duplicate(id, canonical)
+  return M._ok({ "duplicate", id, "--of", canonical })
+end
+
+function M.supersede(id, replacement)
+  return M._ok({ "supersede", id, "--with", replacement })
+end
+
+function M.human_respond(id, response)
+  return M._ok({ "human", "respond", id, "--response", response })
+end
+
+function M.human_dismiss(id, reason)
+  local args = { "human", "dismiss", id }
+  if id == nil then
+    return M._ok(args)
+  end
+  if type(reason) == "string" and reason ~= "" then
+    vim.list_extend(args, { "--reason", reason })
+  end
+  return M._ok(args)
 end
 
 function M.claim(id)

@@ -94,7 +94,7 @@ EOF
     id="$1"; shift
     [ -n "$state" ] && printf 'COMMENT %s %s\n' "$id" "$*" >> "$state"
     exit 0 ;;
-  defer|update|label|close|reopen|assign|priority)
+  defer|update|label|close|reopen|assign|priority|dep|duplicate|supersede|human)
     exit 0 ;;
   *)
     exit 1 ;;
