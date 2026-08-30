@@ -53,16 +53,19 @@ Single entry point for the whole feedback loop. Run ONE command, read ALL
 output in one turn — never inline `--eval` probes.
 
 ```bash
-./check.sh                     # byte-compile + ERT (clean first)
-./check.sh -c                  # compile only
-./check.sh probe probes/x.el   # + exploratory probe test
+./check.sh                         # shared checks + all available plugins
+./check.sh emacs [args...]         # dispatch to the Emacs harness
+./check.sh nvim [args...]          # dispatch to the Neovim harness
+./check.sh emacs probe probes/x.el # run an exploratory Emacs probe
 ```
 
+Elisp edits are verified from `emacs/` with `./check.sh`; root probe commands
+require a plugin selector. Shared harness checks run from `test/harness-test.sh`.
 Exit codes: 0 green · 1 compile error · 2 test fail · 3 probe fail · 5 warnings.
 
 Rules:
 - After every source edit, run `./check.sh` and read everything in one turn.
-- Unknown behavior → add a `probe-*` ERT test in `probes/`, run `./check.sh probe probes/<topic>.el`.
+- Unknown behavior → add a `probe-*` ERT test in `emacs/probes/`, run `./check.sh emacs probe probes/<topic>.el`.
 - Probes are exploratory; promote by renaming `probe-*` → `chaplet-test-*`.
 
 ## Assumptions

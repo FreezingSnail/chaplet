@@ -17,6 +17,20 @@ theme-adaptive faces (dark and light).
   and every five seconds by default (see `chaplet-auto-refresh` and
   `chaplet-refresh-interval`).
 
+## Repository layout
+
+```text
+emacs/       Emacs plugin, local harness, installer, and probes
+nvim/        Neovim plugin tree placeholder
+ test/       Shared test doubles and harness checks
+check.sh     Root test dispatcher
+install.sh   Root installation dispatcher
+PARITY.md    Cross-plugin behavior contract
+.beads/      Local Beads issue database
+```
+
+`PARITY.md` is the cross-plugin contract for user-visible behavior.
+
 ---
 
 ## Requirements
@@ -33,9 +47,15 @@ theme-adaptive faces (dark and light).
 ### `install.sh` (recommended)
 
 ```bash
-./install.sh           # wire into your init file
+./install.sh             # install all available plugins
+./install.sh --emacs     # install the Emacs plugin
+./install.sh --nvim      # select the Neovim plugin
 ./install.sh --uninstall
 ```
+
+Users upgrading from before the restructure must run
+`./install.sh --uninstall` and then install again, because the wired
+`load-path` points at the old root.
 
 Doom-aware: detects `~/.config/doom/config.el` and wires there,
 otherwise `~/.emacs.d/init.el`. Idempotent (marker-based, re-run anytime).
@@ -43,7 +63,7 @@ otherwise `~/.emacs.d/init.el`. Idempotent (marker-based, re-run anytime).
 ### Manual
 
 ```elisp
-(add-to-list 'load-path "/path/to/chaplet")
+(add-to-list 'load-path "/path/to/chaplet/emacs")
 (require 'chaplet)
 (chaplet-mode 1)
 ```
@@ -161,23 +181,31 @@ navigable ASCII gutter-tree (same keys).
 
 | File | Role |
 | --- | --- |
-| `chaplet.el` | Entry point, global minor mode + keymap |
-| `chaplet-bd.el` | Sole `bd` CLI bridge (JSON reads, subcommand writes) |
-| `chaplet-face.el` | Theme-adaptive faces + SVG colors (single palette) |
-| `chaplet-list.el` | `tabulated-list` bead browser (views + filters) |
-| `chaplet-transient.el` | State-aware action menus |
-| `chaplet-detail.el` | Read-only markdown detail buffer |
-| `chaplet-graph.el` | Dependency DAG → SVG (ASCII gutter-tree fallback) |
-| `chaplet-bar.el` | Mode-line keybinding reference bar |
+| `emacs/chaplet.el` | Entry point, global minor mode + keymap |
+| `emacs/chaplet-bd.el` | Sole `bd` CLI bridge (JSON reads, subcommand writes) |
+| `emacs/chaplet-face.el` | Theme-adaptive faces + SVG colors (single palette) |
+| `emacs/chaplet-list.el` | `tabulated-list` bead browser (views + filters) |
+| `emacs/chaplet-transient.el` | State-aware action menus |
+| `emacs/chaplet-detail.el` | Read-only markdown detail buffer |
+| `emacs/chaplet-graph.el` | Dependency DAG → SVG (ASCII gutter-tree fallback) |
+| `emacs/chaplet-bar.el` | Mode-line keybinding reference bar |
+| `PARITY.md` | Cross-plugin user-visible behavior contract |
+| `test/` | Shared test doubles and harness checks |
+| `check.sh` | Root test dispatcher |
+| `install.sh` | Root installation dispatcher |
 
 ## Development
 
 ```bash
-./check.sh                     # byte-compile + ERT (clean first)
-./check.sh -c                  # compile only
-./check.sh probe probes/x.el   # + exploratory probe test
+./check.sh                         # shared checks + all available plugins
+./check.sh emacs [args...]         # dispatch to the Emacs harness
+./check.sh nvim [args...]          # dispatch to the Neovim harness
+./check.sh emacs probe probes/x.el # run an exploratory Emacs probe
 ```
 
+Run plugin-local commands from `emacs/` when working on the Emacs plugin:
+`./check.sh probe probes/x.el`. Probes require a plugin selector at the root.
 Exit codes: `0` green · `1` compile error · `2` test fail · `3` probe fail ·
-`5` warnings. Tests are ERT in `chaplet-test.el`; exploratory probes live in
-`probes/` and are promoted by renaming `probe-*` → `chaplet-test-*`.
+`5` warnings. Tests are in `emacs/chaplet-test.el`; exploratory probes live in
+`emacs/probes/` and are promoted by renaming `probe-*` → `chaplet-test-*`.
+Shared harness checks run from `test/harness-test.sh`.

@@ -1,16 +1,19 @@
-# probes/ — exploratory ERT tests
+# emacs/probes/ — exploratory ERT tests
 
 Temporary questions about Emacs/plugin behavior. **Not** part of the
-permanent test gate — that's `chaplet-test-*` in `chaplet-test.el`.
+permanent test gate — that's `emacs/chaplet-test.el`.
 
 ## Rules (agent feedback loop)
 
-1. After every source edit → run `./check.sh`. Read all output in **one turn**.
-2. Unknown behavior → append a `probe-*` ERT test here, run
-   `./check.sh probe probes/<topic>.el`. **Never inline `--eval`** — batch all
-   questions into one probe file, run once, read every answer.
-3. A probe proves a real invariant → rename it `chaplet-test-*` and move it into
-   `chaplet-test.el` to become a permanent gate.
+1. After every source edit → run `./check.sh` from `emacs/`. Read all output
+   in **one turn**.
+2. Unknown behavior → append a `probe-*` ERT test here, then run
+   `./check.sh probe probes/<topic>.el` from `emacs/`, or
+   `./check.sh emacs probe probes/<topic>.el` from the repository root.
+   **Never inline `--eval`** — batch all questions into one probe file, run
+   once, read every answer.
+3. A probe proves a real invariant → promote it into `emacs/chaplet-test.el`
+   as a `chaplet-test-*` test to become a permanent gate.
 
 ## Probe file shape
 
