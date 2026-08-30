@@ -1,56 +1,75 @@
 #!/usr/bin/env bash
-# chaplet install script — wire plugin into Emacs (Doom-aware).
-# Usage:
-#   ./install.sh            install
-#   ./install.sh --uninstall  remove wiring (keeps repo)
-# Re-run anytime (idempotent).
+# chaplet installer dispatcher.
+# Usage: ./install.sh [--emacs] [--nvim] [--uninstall] [delegate args...]
 
 set -euo pipefail
 
-PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SNIPPET_MARKER=";; === chaplet (managed by install.sh) ==="
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- Detect Doom 3 (config in ~/.config/doom, emacs home ~/.config/emacs) ---
-DOOM_CFG="${XDG_CONFIG_HOME:-$HOME/.config}/doom/config.el"
-if [ -f "${DOOM_CFG}" ]; then
-  TARGET="${DOOM_CFG}"
-  echo "Doom detected: wiring into ${DOOM_CFG}"
-else
-  # Classic ~/.emacs.d
-  TARGET="${HOME}/.emacs.d/init.el"
-  mkdir -p "$(dirname "${TARGET}")"
-  echo "Classic Emacs: wiring into ${TARGET}"
-fi
-
-uninstall() {
-  if [ -f "${TARGET}" ]; then
-    # Remove from first marker to end-of-chaplet line, inclusive
-    awk -v start="${SNIPPET_MARKER}" -v end=";; === end chaplet ===" '
-      $0 == start {skip=1}
-      skip && $0 == end {skip=0; next}
-      !skip' "${TARGET}" > "${TARGET}.tmp" && mv -f "${TARGET}.tmp" "${TARGET}"
-    echo "Removed wiring from ${TARGET}"
-  fi
-  echo "Done."
-  exit 0
+usage() {
+  printf '%s\n' \
+    'Usage: ./install.sh [--emacs] [--nvim] [--uninstall] [delegate args...]' \
+    '       ./install.sh --help'
 }
 
-[ "${1:-}" = "--uninstall" ] && uninstall
+select_emacs=0
+select_nvim=0
+explicit_selection=0
+uninstall=0
+forwarded=()
 
-# --- Install: idempotent marker-based append ---
-if [ -f "${TARGET}" ] && grep -qF "${SNIPPET_MARKER}" "${TARGET}"; then
-  echo "Already wired; skipping."
-else
-  {
-    echo ""
-    echo "${SNIPPET_MARKER}"
-    echo "(add-to-list 'load-path \"${PLUGIN_DIR}\")"
-    echo "(require 'chaplet)"
-    echo "(chaplet-mode 1)"
-    echo ";; === end chaplet ==="
-  } >> "${TARGET}"
-  echo "Wired: ${TARGET}"
+for arg in "$@"; do
+  case "$arg" in
+    --emacs)
+      select_emacs=1
+      explicit_selection=1
+      ;;
+    --nvim)
+      select_nvim=1
+      explicit_selection=1
+      ;;
+    --uninstall)
+      uninstall=1
+      forwarded+=("$arg")
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      usage >&2
+      printf 'Unknown option: %s\n' "$arg" >&2
+      exit 64
+      ;;
+    *)
+      forwarded+=("$arg")
+      ;;
+  esac
+done
+
+plugins=()
+if [[ "$explicit_selection" -eq 0 || "$select_emacs" -eq 1 ]]; then
+  plugins+=(emacs)
+fi
+if [[ "$explicit_selection" -eq 0 || "$select_nvim" -eq 1 ]]; then
+  plugins+=(nvim)
 fi
 
-echo "Installed."
-echo "Restart Emacs (or M-x chaplet)."
+for plugin in "${plugins[@]}"; do
+  installer="${SCRIPT_DIR}/${plugin}/install.sh"
+  if [[ ! -x "$installer" ]]; then
+    printf 'SKIP %s: no install.sh\n' "$plugin"
+    continue
+  fi
+
+  if "$installer" "${forwarded[@]}"; then
+    if [[ "$uninstall" -eq 1 ]]; then
+      printf 'UNINSTALLED %s\n' "$plugin"
+    else
+      printf 'INSTALLED %s\n' "$plugin"
+    fi
+  else
+    status=$?
+    exit "$status"
+  fi
+done
