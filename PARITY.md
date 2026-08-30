@@ -113,3 +113,181 @@ new id, otherwise `nil`.  Sources: `emacs/chaplet-bd.el:chaplet-bd--invoke`,
 | Dependencies | For dependency objects, replace each object with its `depends_on_id`; plain id strings pass through unchanged. | `emacs/chaplet-bd.el:chaplet-bd--normalize-deps` |
 | JSON forms | Empty stdout and `null` parse as nil; an array parses as a list; a bare object becomes a one-item list. | `emacs/chaplet-bd.el:chaplet-bd--parse` |
 | Parse failure | `json-parse-string` errors are not caught, so they surface to the caller. | `emacs/chaplet-bd.el:chaplet-bd--parse` |
+
+## 6. List view
+
+The sortable `tabulated-list` table has columns, in this order, `ID`, `Type`,
+`State`, `P`, `Staged`, and `Title`.  Each row carries its bead id; ID, type,
+and state use their corresponding faces.  Source:
+`emacs/chaplet-list.el:chaplet-list--format` and
+`emacs/chaplet-list.el:chaplet-list--entry`.
+
+| Surface | Contract | Source |
+| --- | --- | --- |
+| Priority cell | Nil priority renders `""`; otherwise priority is coerced to a number and renders `●<n>` for `n >= 2`, `·<n>` for lower values, using that priority's face. | `emacs/chaplet-list.el:chaplet-list--priority-dot` |
+| Staged cell | Renders a staged-face `✔` exactly when `chaplet-list--staged-p` is non-nil; otherwise `""`. | `emacs/chaplet-list.el:chaplet-list--entry` |
+| Staged predicate | A bead is staged exactly when status is `"deferred"` **and** its labels contain `chaplet-staged-label`; the label alone is insufficient. | `emacs/chaplet-list.el:chaplet-list--staged-p` |
+| Epic grouping | An epic header precedes its children; every child whose `parent` equals the epic id has its title indented by two spaces. Parentless non-epics follow grouped entries. | `emacs/chaplet-list.el:chaplet-list--group-by-epic` and `emacs/chaplet-list.el:chaplet-list--entry` |
+| Out-of-view parent | When a child references a parent absent from the current result, fetch that parent with `chaplet-bd-show`, cache even a nil result by epic id, and insert it as the group header when present. | `emacs/chaplet-list.el:chaplet-list--fetch-epic` and `emacs/chaplet-list.el:chaplet-list--group-by-epic` |
+| `RET` / `mouse-1` | Open bead at point through `chaplet-list-open`, preferring `chaplet-detail`; error when no row supplies an id. | `emacs/chaplet-list.el:chaplet-list-open` and `emacs/chaplet-list.el:chaplet-list--bind` |
+| `v` | Select and render a named list view in the shared list buffer. | `emacs/chaplet-list.el:chaplet-list-set-view` |
+| `s` | Open graph for the current list view. | `emacs/chaplet-list.el:chaplet-list-graph` |
+| `?` | Open the state-aware action transient. | `emacs/chaplet-transient.el:chaplet-transient` |
+| `q` | Quit the list window. | `emacs/chaplet-list.el:chaplet-list--bind` |
+
+## 7. Action menu
+
+The transient captures id, status, stagedness, and whether labels contain
+`chaplet-human-label` when opened.  “Any” below means every status, including
+`closed`; “not closed” means `status != "closed"`, which also includes a nil
+captured status.  Unless noted, entries neither require stagedness nor the
+`human` label.  Duplicate and supersede are the only entries that ask for a
+confirmation (`y-or-n-p`) before invoking their write wrapper.  Sources:
+`emacs/chaplet-transient.el:chaplet-transient` and
+`emacs/chaplet-transient.el:chaplet-transient--actions-for-state`.
+
+| Key | Entry and write wrapper | Visibility predicate | Confirmation | Source |
+| --- | --- | --- | --- | --- |
+| `a` | Approve: `chaplet-approve` calls `chaplet-bd-undefer`, then `chaplet-bd-label-remove` for `chaplet-staged-label`. | `status = "deferred"`; staged not required; human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-approve`; `emacs/chaplet-bd.el:chaplet-bd-undefer`; `emacs/chaplet-bd.el:chaplet-bd-label-remove` |
+| `r` | Reject: `chaplet-reject` writes `rejected: <feedback>` through `chaplet-bd-comment`; it does not undefer. | `status = "deferred"` and staged; human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-reject`; `emacs/chaplet-bd.el:chaplet-bd-comment` |
+| `C` | Claim: `chaplet-claim` → `chaplet-bd-claim`. | Not closed; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-claim`; `emacs/chaplet-bd.el:chaplet-bd-claim` |
+| `A` | Assign or blank-unassign: `chaplet-assign` → `chaplet-bd-assign`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-assign`; `emacs/chaplet-bd.el:chaplet-bd-assign` |
+| `x` | Close with optional reason: `chaplet-close` → `chaplet-bd-close`. | Not closed; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-close`; `emacs/chaplet-bd.el:chaplet-bd-close` |
+| `o` | Reopen with optional reason: `chaplet-reopen` → `chaplet-bd-reopen`. | `status = "closed"`; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-reopen`; `emacs/chaplet-bd.el:chaplet-bd-reopen` |
+| `=` | Mark duplicate: `chaplet-duplicate` → `chaplet-bd-duplicate` with prompted canonical id. | Not closed; staged and human irrelevant. | Yes | `emacs/chaplet-transient.el:chaplet-duplicate`; `emacs/chaplet-bd.el:chaplet-bd-duplicate` |
+| `S` | Supersede: `chaplet-supersede` → `chaplet-bd-supersede` with prompted replacement id. | Not closed; staged and human irrelevant. | Yes | `emacs/chaplet-transient.el:chaplet-supersede`; `emacs/chaplet-bd.el:chaplet-bd-supersede` |
+| `c` | Comment: `chaplet-comment` → `chaplet-bd-comment`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-comment`; `emacs/chaplet-bd.el:chaplet-bd-comment` |
+| `e` | Edit design: `chaplet-edit-design` → `chaplet-bd-update-design`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-edit-design`; `emacs/chaplet-bd.el:chaplet-bd-update-design` |
+| `E` | Edit core field (`title`, `description`, `type`, `design`, or `acceptance`): `chaplet-edit-field` → `chaplet-bd-update`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-edit-field`; `emacs/chaplet-bd.el:chaplet-bd-update` |
+| `p` | Set priority `0`–`4`: `chaplet-set-priority` → `chaplet-bd-priority`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-set-priority`; `emacs/chaplet-bd.el:chaplet-bd-priority` |
+| `l` | Add label: `chaplet-add-label` → `chaplet-bd-label`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-add-label`; `emacs/chaplet-bd.el:chaplet-bd-label` |
+| `L` | Remove label: `chaplet-remove-label` → `chaplet-bd-label-remove`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-remove-label`; `emacs/chaplet-bd.el:chaplet-bd-label-remove` |
+| `d` | Add dependency: `chaplet-add-dependency` → `chaplet-bd-dependency-add`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-add-dependency`; `emacs/chaplet-bd.el:chaplet-bd-dependency-add` |
+| `D` | Remove dependency: `chaplet-remove-dependency` → `chaplet-bd-dependency-remove`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-remove-dependency`; `emacs/chaplet-bd.el:chaplet-bd-dependency-remove` |
+| `f` | Defer: `chaplet-defer` → `chaplet-bd-defer`. | Not closed; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-defer`; `emacs/chaplet-bd.el:chaplet-bd-defer` |
+| `h` | Respond + close: `chaplet-human-respond` → `chaplet-bd-human-respond`. | Has `human` label; every status and either stagedness. | No | `emacs/chaplet-transient.el:chaplet-human-respond`; `emacs/chaplet-bd.el:chaplet-bd-human-respond` |
+| `H` | Dismiss: `chaplet-human-dismiss` → `chaplet-bd-human-dismiss`. | Has `human` label; every status and either stagedness. | No | `emacs/chaplet-transient.el:chaplet-human-dismiss`; `emacs/chaplet-bd.el:chaplet-bd-human-dismiss` |
+| `n` | New bead: `chaplet-new` → `chaplet-bd-create`. | Any; staged and human irrelevant. | No | `emacs/chaplet-transient.el:chaplet-new`; `emacs/chaplet-bd.el:chaplet-bd-create` |
+| `g` | Refresh every live Chaplet view: `chaplet-refresh` → `chaplet-refresh-all`. | Always; no status, staged, or human predicate. | No | `emacs/chaplet-transient.el:chaplet-refresh`; `emacs/chaplet-list.el:chaplet-refresh-all` |
+| `v` | Switch list view: `chaplet-list-set-view`. | Always; no status, staged, or human predicate. | No | `emacs/chaplet-list.el:chaplet-list-set-view` |
+| `s` | Open graph for current list view: `chaplet-list-graph`. | Only when `chaplet-list-graph` is bound; no status, staged, or human predicate. | No | `emacs/chaplet-transient.el:chaplet-transient`; `emacs/chaplet-list.el:chaplet-list-graph` |
+
+Every successful action implementation above refreshes all Chaplet views;
+the menu's `g` does so directly.  Source:
+`emacs/chaplet-transient.el:chaplet-transient--refresh`.
+
+## 8. Detail view
+
+The shared, read-only detail buffer renders a markdown header first, then
+non-empty sections in this fixed order: Description, Design, Acceptance,
+Comments.  The header contains title, id, status, priority, type, owner,
+created time, and labels when present.  Empty named sections are omitted.
+Source: `emacs/chaplet-detail.el:chaplet-detail--render-header`,
+`emacs/chaplet-detail.el:chaplet-detail--render`, and
+`emacs/chaplet-detail.el:chaplet-detail`.
+
+`chaplet-detail--activate-major-mode` enables `markdown-mode` when available;
+otherwise it enables `fundamental-mode` plus `font-lock-mode`.  Source:
+`emacs/chaplet-detail.el:chaplet-detail--activate-major-mode`.
+
+| Key | Contract and condition | Source |
+| --- | --- | --- |
+| `q` | Quit detail window; no bead-state condition. | `emacs/chaplet-detail.el:chaplet-detail-quit` |
+| `g` | Re-fetch and render current id when one exists; no bead-state condition. | `emacs/chaplet-detail.el:chaplet-detail-refresh` |
+| `c` | Delegate comment to `chaplet-transient-comment` when available, otherwise report it unwired; no bead-state condition. | `emacs/chaplet-detail.el:chaplet-detail-comment` |
+| `a` | Approve only a deferred bead; otherwise signal a user error. | `emacs/chaplet-detail.el:chaplet-detail-approve` |
+| `r` | Reject only a deferred staged bead; otherwise signal a user error. | `emacs/chaplet-detail.el:chaplet-detail-reject` and `emacs/chaplet-detail.el:chaplet-detail--staged-p` |
+
+## 9. Graph view
+
+The graph is a deterministic layered, top-down DAG.  Dependency roots occupy
+layer zero; a dependent is one layer below the greatest layer of its
+dependencies.  Rows sort nodes by id, and arrows represent `(FROM . TO)` where
+FROM depends on TO.  Unknown dependencies become closed ghost nodes.  Source:
+`emacs/chaplet-graph.el:chaplet-graph--layers`,
+`emacs/chaplet-graph.el:chaplet-graph--rows`, and
+`emacs/chaplet-graph.el:chaplet-graph--layout`.
+
+SVG nodes display id and title; title is truncated to
+`chaplet-graph--title-max` columns with `…`.  State controls node color, and
+staged deferred nodes use the staged color.  A focused node receives a halo.
+Source: `emacs/chaplet-graph.el:chaplet-graph--node`,
+`emacs/chaplet-graph.el:chaplet-graph--truncate`, and
+`emacs/chaplet-graph.el:chaplet-graph--draw-node`.
+
+| Key or event | Contract | Source |
+| --- | --- | --- |
+| `n` / `p` | Cycle focus forward / backward through node order. | `emacs/chaplet-graph.el:chaplet-graph--focus-next` and `emacs/chaplet-graph.el:chaplet-graph--focus-prev` |
+| `RET` | Open focused node in detail; report no focused node otherwise. | `emacs/chaplet-graph.el:chaplet-graph--open-focused` |
+| `d` | Move focus to a dependent of focused node; report when none. | `emacs/chaplet-graph.el:chaplet-graph--jump-dependents` |
+| `f` | Move focus to a dependency of focused node; report when none. | `emacs/chaplet-graph.el:chaplet-graph--jump-deps` |
+| `g` | Re-fetch graph data, preserving focus only when its node remains. | `emacs/chaplet-graph.el:chaplet-graph--refresh` |
+| `c` | No graph binding exists; this source does not implement a closed-node toggle. | `emacs/chaplet-graph.el:chaplet-graph--bind` |
+| `q` | Quit graph window. | `emacs/chaplet-graph.el:chaplet-graph--bind` |
+| `mouse-1` | Open clicked node in detail. | `emacs/chaplet-graph.el:chaplet-graph--open-node` |
+| `mouse-2` | Focus clicked node, then jump to its dependents. | `emacs/chaplet-graph.el:chaplet-graph--node-dependents` |
+
+When inline SVG images are unavailable (including no display or no
+`svg-image` result), render a navigable ASCII gutter-tree instead.  It has
+one node per line; `│`, `└`, `┐`, and `─` thread concurrent dependency lanes.
+Text node lines contain focus marker, id, title, state, and ghost marker; the
+same navigation keys remain active.  Source:
+`emacs/chaplet-graph.el:chaplet-graph--image-available-p`,
+`emacs/chaplet-graph.el:chaplet-graph--text-gutter`, and
+`emacs/chaplet-graph.el:chaplet-graph--text-render`.
+
+| Tunable | Default | Contract | Source |
+| --- | ---: | --- | --- |
+| `chaplet-graph--x-gap` | 28 | Horizontal node gap, px. | `emacs/chaplet-graph.el:chaplet-graph--x-gap` |
+| `chaplet-graph--y-gap` | 40 | Vertical layer gap, px. | `emacs/chaplet-graph.el:chaplet-graph--y-gap` |
+| `chaplet-graph--node-h` | 28 | Node height, px. | `emacs/chaplet-graph.el:chaplet-graph--node-h` |
+| `chaplet-graph--title-max` | 28 | SVG title width before truncation, columns. | `emacs/chaplet-graph.el:chaplet-graph--title-max` |
+| `chaplet-graph--pad` | 8 | Node horizontal padding, px. | `emacs/chaplet-graph.el:chaplet-graph--pad` |
+| `chaplet-graph--margin` | 16 | Canvas margin, px. | `emacs/chaplet-graph.el:chaplet-graph--margin` |
+| `chaplet-graph--text-title-max` | 20 | ASCII title width before truncation, columns. | `emacs/chaplet-graph.el:chaplet-graph--text-title-max` |
+| `chaplet-graph--text-align` | `nil` | Right-pad gutters to align node boxes. | `emacs/chaplet-graph.el:chaplet-graph--text-align` |
+| `chaplet-graph--text-lane-max` | `nil` | Maximum ASCII gutter lanes; nil is unlimited. | `emacs/chaplet-graph.el:chaplet-graph--text-lane-max` |
+
+## 10. Refresh and bindings
+
+`chaplet-auto-refresh` defaults to `t`.  When non-nil, a list, detail, or
+graph buffer runs its buffer-local show hook: it starts the periodic timer and
+re-fetches only if it has never fetched or its last fetch is older than
+`chaplet-refresh-delay`.  The delay defaults to `2` seconds and prevents a
+fresh explicit fetch from being repeated by the show hook.  Source:
+`emacs/chaplet-list.el:chaplet-auto-refresh`,
+`emacs/chaplet-list.el:chaplet--refresh-on-focus`, and
+`emacs/chaplet-list.el:chaplet--focus-stale-p`.
+
+`chaplet-refresh-interval` defaults to `5` seconds.  A positive non-nil value
+runs a repeating timer; `nil` disables timer ticks but retains show refreshes.
+Each tick re-fetches only stale, visible non-minibuffer buffers and stops the
+timer when no buffers are visible.  Source:
+`emacs/chaplet-list.el:chaplet-refresh-interval`,
+`emacs/chaplet-list.el:chaplet--ensure-refresh-timer`,
+`emacs/chaplet-list.el:chaplet--visible-buffers`, and
+`emacs/chaplet-list.el:chaplet--refresh-tick`.
+
+Write actions call `chaplet-refresh-all` regardless of
+`chaplet-auto-refresh`, refreshing the shared list plus every live detail and
+graph buffer.  Source: `emacs/chaplet-list.el:chaplet-refresh-all` and
+`emacs/chaplet-transient.el:chaplet-transient--refresh`.
+
+### 10.1 Binding rule
+
+Every buffer-local list, detail, and graph binding uses its module helper to
+bind the plain mode map and, when Evil provides `evil-define-key*`, both Evil
+normal and motion states.  This prevents read-only-buffer single-character
+motions from leaking through: graph and detail are read-only, and their local
+single-character commands remain available in both Evil states.  Source:
+`emacs/chaplet-list.el:chaplet-list--bind`,
+`emacs/chaplet-detail.el:chaplet-detail--bind`, and
+`emacs/chaplet-graph.el:chaplet-graph--bind`.
+
+## 11. Sanctioned divergences
+
+A plugin divergence is sanctioned only after it is recorded in this table.
+Until then, PARITY behavior remains required.
+
+| Plugin | PARITY section | Divergence | Rationale |
+| --- | --- | --- | --- |
