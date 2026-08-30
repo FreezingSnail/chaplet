@@ -62,7 +62,9 @@ for plugin in "${plugins[@]}"; do
     continue
   fi
 
-  if "$installer" "${forwarded[@]}"; then
+  # bash 3.2 (macOS system bash) treats "${empty[@]}" as an unbound variable
+  # under `set -u`, so a plain run with no forwarded arguments aborted here.
+  if "$installer" ${forwarded[@]+"${forwarded[@]}"}; then
     if [[ "$uninstall" -eq 1 ]]; then
       printf 'UNINSTALLED %s\n' "$plugin"
     else
