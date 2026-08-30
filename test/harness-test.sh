@@ -114,10 +114,12 @@ run_dispatch nvim
 assert_status 0 "$status" 'non-executable selected nvim'
 assert_contains "$output" 'SKIP nvim: no check.sh' 'non-executable selected nvim'
 
+# Keep the plugin directory present: only its harness is missing.
+[[ -d "$worktree/nvim" ]] || fail 'nvim plugin directory missing'
 rm -f "$worktree/nvim/check.sh"
 run_dispatch
-assert_status 0 "$status" 'missing nvim harness'
-assert_contains "$output" 'SKIP nvim: no check.sh' 'missing nvim harness'
+assert_status 0 "$status" 'existing nvim without harness'
+assert_contains "$output" 'SKIP nvim: no check.sh' 'existing nvim without harness'
 
 rmdir "$worktree/nvim" || fail 'remove empty nvim directory failed'
 run_dispatch
