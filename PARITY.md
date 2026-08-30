@@ -284,6 +284,23 @@ single-character commands remain available in both Evil states.  Source:
 `emacs/chaplet-detail.el:chaplet-detail--bind`, and
 `emacs/chaplet-graph.el:chaplet-graph--bind`.
 
+### 10.2 Neovim foundation coverage
+
+The Neovim column below records landed coverage for the foundation epic. Each
+claim names the Lua symbol that implements it; the boundary spec at
+`nvim/tests/boundary_spec.lua` enforces the single CLI spawn site.
+
+| Surface | Contract | Emacs source | Neovim source |
+| --- | --- | --- | --- |
+| Entry points | `:Chaplet` opens the inbox, `:ChapletGraph` opens the graph, and the configured leader prefix binds their `b` and `s` commands. | `emacs/chaplet.el:chaplet`, `emacs/chaplet-graph.el:chaplet-graph`, `emacs/chaplet.el:chaplet-mode-map` | `nvim/lua/chaplet/init.lua:M.setup`; defaults in `nvim/lua/chaplet/config.lua:M.defaults` |
+| Views | Eight views, in order: `inbox`, `human`, `deferred`, `open`, `in-progress`, `blocked`, `closed`, `all`; each has its canonical filter. | `emacs/chaplet-bd.el:chaplet-bd--views`, `chaplet-bd--view-names`, `chaplet-bd--view-filters` | `nvim/lua/chaplet/bd.lua:M.views`, `M.view_names`, `M.view_filters` |
+| Filter translators | Argument and query-expression translators cover value filters, boolean filters, ordering, and unknown-filter rejection. | `emacs/chaplet-bd.el:chaplet-bd--filters->args`, `chaplet-bd--filters->expr` | `nvim/lua/chaplet/bd.lua:M.filters_to_args`, `M.filters_to_expr` |
+| Read surface | `list`, `query`, `show --long`, comments, `graph --dot`, and `list --format dot --all` wrappers are covered. | `emacs/chaplet-bd.el:chaplet-bd-list`, `chaplet-bd-query`, `chaplet-bd-show`, `chaplet-bd-comments`, `chaplet-bd-graph-dot` | `nvim/lua/chaplet/bd.lua:M.list`, `M.query`, `M.show`, `M.comments`, `M.graph_dot` |
+| Write surface: lifecycle | Create, comment, undefer, defer, update, labels, close, reopen, claim, assign, and priority wrappers are covered. | `emacs/chaplet-bd.el` write wrappers | `nvim/lua/chaplet/bd.lua:M.create`, `M.comment`, `M.undefer`, `M.defer`, `M.update`, `M.update_design`, `M.update_acceptance`, `M.label`, `M.label_remove`, `M.close`, `M.reopen`, `M.claim`, `M.assign`, `M.priority` |
+| Write surface: relational and human | Dependency add/remove, duplicate, supersede, human respond, and human dismiss wrappers are covered. | `emacs/chaplet-bd.el` relational and human wrappers | `nvim/lua/chaplet/bd.lua:M.dependency_add`, `M.dependency_remove`, `M.duplicate`, `M.supersede`, `M.human_respond`, `M.human_dismiss` |
+| Normalization | Normalized bead fields, `acceptance_criteria` fallback, and dependency-object flattening match the contract. The normalized bead table has **15 fields**, as defined by `chaplet-bd--fields` (not 16 as stated in the epic 2 description). | `emacs/chaplet-bd.el:chaplet-bd--fields`, `chaplet-bd--normalize`, `chaplet-bd--normalize-deps` | `nvim/lua/chaplet/bd.lua:M.FIELDS`, `M._normalize`, `M._normalize_deps` |
+| Face and highlight palette | Dark/light state, priority, type, and staged colors share the canonical palette; state highlights blend with the active background and reapply on `ColorScheme`. | `emacs/chaplet-face.el:chaplet-face--dark-palette`, `chaplet-face--light-palette`, `chaplet-face-adapt` | `nvim/lua/chaplet/hl.lua:M.PALETTE`, `M.apply`, `M.setup` |
+
 ## 11. Sanctioned divergences
 
 A plugin divergence is sanctioned only after it is recorded in this table.
@@ -291,3 +308,4 @@ Until then, PARITY behavior remains required.
 
 | Plugin | PARITY section | Divergence | Rationale |
 | --- | --- | --- | --- |
+| Neovim | PARITY 3 — Read surface | The Neovim bridge is synchronous through one `M.invoke` choke point, matching the elisp `call-process` control flow. On Neovim 0.9, the bridge uses the `vim.fn.system` fallback path when `vim.system` is unavailable. | Async is a known performance divergence to revisit, not a parity break (epic D2). |
