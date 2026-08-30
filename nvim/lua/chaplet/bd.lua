@@ -2,6 +2,90 @@ local config = require("chaplet.config")
 
 local M = {}
 
+M.FIELDS = {
+  "id",
+  "title",
+  "description",
+  "status",
+  "priority",
+  "issue_type",
+  "owner",
+  "labels",
+  "dependencies",
+  "defer_until",
+  "design",
+  "acceptance",
+  "created_at",
+  "updated_at",
+  "parent",
+}
+
+function M._parse(stdout)
+  local trimmed = vim.trim(stdout)
+  if trimmed == "" or trimmed == "null" then
+    return nil
+  end
+
+  local decoded = vim.json.decode(trimmed)
+  if trimmed:sub(1, 1) == "[" then
+    return decoded
+  end
+  return { decoded }
+end
+
+function M._scrub(value)
+  if value == vim.NIL then
+    return nil
+  end
+  if type(value) ~= "table" then
+    return value
+  end
+
+  local scrubbed = {}
+  for key, item in pairs(value) do
+    scrubbed[key] = M._scrub(item)
+  end
+  return scrubbed
+end
+
+function M._normalize_deps(deps)
+  if deps == nil then
+    return nil
+  end
+
+  local normalized = {}
+  for index, dependency in ipairs(deps) do
+    if type(dependency) == "table" then
+      normalized[index] = dependency.depends_on_id
+    else
+      normalized[index] = dependency
+    end
+  end
+  return normalized
+end
+
+function M._normalize(object)
+  local bead = {}
+  for _, field in ipairs(M.FIELDS) do
+    local value = M._scrub(object[field])
+    if field == "dependencies" then
+      value = M._normalize_deps(value)
+    end
+    if value ~= nil then
+      bead[field] = value
+    end
+  end
+
+  if bead.acceptance == nil then
+    local acceptance = M._scrub(object.acceptance_criteria)
+    if acceptance ~= nil then
+      bead.acceptance = acceptance
+    end
+  end
+
+  return bead
+end
+
 local function capability()
   return vim.system ~= nil
 end
