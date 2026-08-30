@@ -49,7 +49,7 @@ function M._scrub(value)
 end
 
 function M._normalize_deps(deps)
-  if deps == nil then
+  if deps == nil or #deps == 0 then
     return nil
   end
 
@@ -101,6 +101,12 @@ end
 local function valid_args(args)
   local is_list = vim.islist or vim.tbl_islist
   if type(args) ~= "table" or not is_list(args) then
+    return false
+  end
+
+  local json_lengths = { query = 3, show = 4 }
+  local required_length = args[2] == "--json" and json_lengths[args[1]]
+  if required_length and #args < required_length then
     return false
   end
 
@@ -238,6 +244,55 @@ function M.filters_to_expr(filters)
     end
   end
   return table.concat(clauses, " AND ")
+end
+
+function M.list(filters)
+  local args = { "list", "--json" }
+  vim.list_extend(args, M.filters_to_args(filters))
+  local result = M.invoke(args)
+  if result.code ~= 0 then
+    return nil
+  end
+
+  local parsed = M._parse(result.stdout)
+  if parsed == nil then
+    return nil
+  end
+  return vim.tbl_map(M._normalize, parsed)
+end
+
+function M.query(expr)
+  local result = M.invoke({ "query", "--json", expr })
+  if result.code ~= 0 then
+    return nil
+  end
+
+  local parsed = M._parse(result.stdout)
+  if parsed == nil then
+    return nil
+  end
+  return vim.tbl_map(M._normalize, parsed)
+end
+
+function M.show(id)
+  local result = M.invoke({ "show", "--json", "--long", id })
+  if result.code ~= 0 then
+    return nil
+  end
+
+  local parsed = M._parse(result.stdout)
+  if parsed == nil then
+    return nil
+  end
+  return M._normalize(parsed[1])
+end
+
+function M.comments(id)
+  local result = M.invoke({ "comments", id, "--json" })
+  if result.code ~= 0 then
+    return nil
+  end
+  return M._parse(result.stdout)
 end
 
 return M
