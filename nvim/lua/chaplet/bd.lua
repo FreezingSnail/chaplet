@@ -317,4 +317,88 @@ function M.comments(id)
   return M._parse(result.stdout)
 end
 
+function M._ok(args)
+  return M.invoke(args).code == 0
+end
+
+function M.create(title, issue_type, description)
+  local result = M.invoke({ "create", title, "-t", issue_type, "-d", description, "--silent" })
+  if result.code ~= 0 then
+    return nil
+  end
+  return vim.trim(result.stdout)
+end
+
+function M.comment(id, text)
+  return M._ok({ "comment", id, text })
+end
+
+function M.undefer(id)
+  return M._ok({ "undefer", id })
+end
+
+function M.defer(id)
+  return M._ok({ "defer", id })
+end
+
+function M.update_design(id, design)
+  return M._ok({ "update", id, "--design", design })
+end
+
+function M.update_acceptance(id, acceptance)
+  return M._ok({ "update", id, "--acceptance", acceptance })
+end
+
+local UPDATE_FLAGS = {
+  title = "--title",
+  description = "--description",
+  type = "--type",
+  design = "--design",
+  acceptance = "--acceptance",
+}
+
+function M.update(id, field, value)
+  local flag = UPDATE_FLAGS[field]
+  if flag == nil then
+    error("chaplet-bd: unsupported update field " .. tostring(field))
+  end
+  return M._ok({ "update", id, flag, value })
+end
+
+function M.label(id, label)
+  return M._ok({ "label", "add", id, label })
+end
+
+function M.label_remove(id, label)
+  return M._ok({ "label", "remove", id, label })
+end
+
+local function lifecycle_with_reason(command, id, reason)
+  local args = { command, id }
+  if type(reason) == "string" and reason ~= "" then
+    vim.list_extend(args, { "--reason", reason })
+  end
+  return M._ok(args)
+end
+
+function M.close(id, reason)
+  return lifecycle_with_reason("close", id, reason)
+end
+
+function M.reopen(id, reason)
+  return lifecycle_with_reason("reopen", id, reason)
+end
+
+function M.claim(id)
+  return M._ok({ "update", id, "--claim" })
+end
+
+function M.assign(id, assignee)
+  return M._ok({ "assign", id, assignee })
+end
+
+function M.priority(id, priority)
+  return M._ok({ "priority", id, tostring(priority) })
+end
+
 return M
