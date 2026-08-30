@@ -1,4 +1,5 @@
 local config = require("chaplet.config")
+local hl = require("chaplet.hl")
 
 local M = {}
 
@@ -26,6 +27,7 @@ end
 
 function M.setup(opts)
   local options = config.setup(opts)
+  hl.setup()
 
   vim.api.nvim_create_user_command("Chaplet", open_list, { force = true })
   vim.api.nvim_create_user_command("ChapletGraph", open_graph, { force = true })
