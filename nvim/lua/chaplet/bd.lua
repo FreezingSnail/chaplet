@@ -261,6 +261,28 @@ function M.list(filters)
   return vim.tbl_map(M._normalize, parsed)
 end
 
+function M.graph_dot(filters)
+  filters = filters or {}
+  local args
+  if filters.id then
+    args = { "graph", "--dot", filters.id }
+  elseif filters.closed then
+    args = { "list", "--format", "dot", "--all" }
+  else
+    args = { "graph", "--dot", "--all" }
+  end
+
+  local result = M.invoke(args)
+  if result.code ~= 0 then
+    return nil
+  end
+  return result.stdout
+end
+
+function M.graph_data(filters)
+  return M.list(filters)
+end
+
 function M.query(expr)
   local result = M.invoke({ "query", "--json", expr })
   if result.code ~= 0 then

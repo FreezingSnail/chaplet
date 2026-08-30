@@ -23,6 +23,16 @@ approved() {
 
 case "$cmd" in
   list)
+    previous=""
+    for arg in "$@"; do
+      if [ "$previous" = "--format" ] && [ "$arg" = "dot" ]; then
+        cat <<'EOF'
+digraph G { "bd-closed" [status="closed"]; }
+EOF
+        exit 0
+      fi
+      previous="$arg"
+    done
     cat <<'EOF'
 [
   {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"dependencies":[],"defer_until":null,"design":"","acceptance":"","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"},
@@ -68,7 +78,11 @@ EOF
 EOF
     exit 0 ;;
   graph)
-    echo 'digraph G { "bd-1" -> "bd-2"; }'
+    if [ "$1" = "--dot" ] && [ -n "$2" ] && [ "$2" != "--all" ]; then
+      printf 'digraph G { "%s"; }\n' "$2"
+    else
+      echo 'digraph G { "bd-1" -> "bd-2"; }'
+    fi
     exit 0 ;;
   create)
     echo "bd-99"
