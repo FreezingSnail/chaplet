@@ -95,7 +95,7 @@ local function install_keys(bufnr)
     M.toggle_closed(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "q", function()
-    vim.cmd("close")
+    util.restore_previous_buffer_or_close(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "<LeftMouse>", function()
     M.mouse_open(bufnr)
@@ -398,7 +398,11 @@ end
 
 --- Open the reused graph buffer, selecting VIEW when supplied.
 function M.open(view)
+  local previous = vim.api.nvim_get_current_buf()
   local bufnr = M.buffer()
+  if previous ~= bufnr and vim.api.nvim_buf_is_valid(previous) then
+    vim.b[bufnr].chaplet_previous_buffer = previous
+  end
   local state = state_for(bufnr)
   if view ~= nil then
     state.view = view

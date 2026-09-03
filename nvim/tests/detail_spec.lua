@@ -129,6 +129,30 @@ describe("chaplet.detail", function()
     assert.equals(first, refresh_calls.marked)
   end)
 
+  it("returns to the replaced buffer on q in a single window", function()
+    local prior = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(prior)
+    local bufnr = detail.open("bd-1")
+
+    local keys = vim.api.nvim_replace_termcodes("q", true, false, true)
+    vim.api.nvim_feedkeys(keys, "mx", false)
+
+    assert.equals(prior, vim.api.nvim_get_current_buf())
+    assert.is_true(vim.api.nvim_buf_is_valid(bufnr))
+    vim.api.nvim_buf_delete(prior, { force = true })
+  end)
+
+  it("leaves a lone detail window in place when no prior buffer exists", function()
+    local bufnr = detail.open("bd-1")
+    vim.b[bufnr].chaplet_previous_buffer = nil
+
+    local keys = vim.api.nvim_replace_termcodes("q", true, false, true)
+    local ok, err = pcall(vim.api.nvim_feedkeys, keys, "mx", false)
+
+    assert.is_true(ok, err)
+    assert.equals(bufnr, vim.api.nvim_get_current_buf())
+  end)
+
   it("skips unchanged writes and preserves the cursor", function()
     local bufnr = detail.open("bd-1")
     vim.api.nvim_win_set_cursor(0, { 3, 4 })

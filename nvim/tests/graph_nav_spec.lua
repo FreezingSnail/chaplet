@@ -186,6 +186,7 @@ describe("chaplet.graph navigation", function()
   local saved_detail_open
   local saved_bar_install
   local saved_graph_data
+  local saved_graph_dot
   local saved_notify
   local notifications
 
@@ -194,6 +195,7 @@ describe("chaplet.graph navigation", function()
     saved_detail_open = detail.open
     saved_bar_install = bar.install
     saved_graph_data = bd.graph_data
+    saved_graph_dot = bd.graph_dot
     saved_notify = vim.notify
     notifications = {}
     vim.notify = function(message, level)
@@ -205,6 +207,7 @@ describe("chaplet.graph navigation", function()
     detail.open = saved_detail_open
     bar.install = saved_bar_install
     bd.graph_data = saved_graph_data
+    bd.graph_dot = saved_graph_dot
     vim.notify = saved_notify
     delete_graph_buffer()
   end)
@@ -214,6 +217,42 @@ describe("chaplet.graph navigation", function()
     graph.render(bufnr, nodes, edges or {}, nil)
     return bufnr
   end
+
+  it("returns to the replaced buffer on q in a single window", function()
+    local prior = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(prior)
+    bd.graph_data = function()
+      return { { id = "a", title = "A", status = "open", dependencies = {} } }
+    end
+    bd.graph_dot = function()
+      return "digraph G {}"
+    end
+
+    local bufnr = graph.open()
+    local keys = vim.api.nvim_replace_termcodes("q", true, false, true)
+    vim.api.nvim_feedkeys(keys, "mx", false)
+
+    assert.equals(prior, vim.api.nvim_get_current_buf())
+    assert.is_true(vim.api.nvim_buf_is_valid(bufnr))
+    vim.api.nvim_buf_delete(prior, { force = true })
+  end)
+
+  it("leaves a lone graph window in place when no prior buffer exists", function()
+    bd.graph_data = function()
+      return { { id = "a", title = "A", status = "open", dependencies = {} } }
+    end
+    bd.graph_dot = function()
+      return "digraph G {}"
+    end
+
+    local bufnr = graph.open()
+    vim.b[bufnr].chaplet_previous_buffer = nil
+    local keys = vim.api.nvim_replace_termcodes("q", true, false, true)
+    local ok, err = pcall(vim.api.nvim_feedkeys, keys, "mx", false)
+
+    assert.is_true(ok, err)
+    assert.equals(bufnr, vim.api.nvim_get_current_buf())
+  end)
 
   it("walks renderer order, wraps, and starts next at the first node", function()
     local bufnr = rendered_graph({

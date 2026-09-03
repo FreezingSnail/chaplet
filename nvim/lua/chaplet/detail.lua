@@ -1,5 +1,6 @@
 local bd = require("chaplet.bd")
 local refresh = require("chaplet.refresh")
+local util = require("chaplet.util")
 
 local M = {}
 
@@ -82,7 +83,7 @@ function M.render(bead, comments)
 end
 
 local function close_window()
-  vim.cmd("close")
+  util.restore_previous_buffer_or_close(vim.api.nvim_get_current_buf())
 end
 
 function M.keys(bead)
@@ -195,12 +196,16 @@ function M.populate(bufnr, id)
 end
 
 function M.open(id)
+  local previous = vim.api.nvim_get_current_buf()
   local bufnr = vim.fn.bufnr(M.BUFFER_NAME)
   if bufnr == -1 then
     bufnr = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_name(bufnr, M.BUFFER_NAME)
   end
 
+  if previous ~= bufnr and vim.api.nvim_buf_is_valid(previous) then
+    vim.b[bufnr].chaplet_previous_buffer = previous
+  end
   set_options(bufnr)
   vim.b[bufnr].chaplet_detail_id = id
   M.populate(bufnr, id)

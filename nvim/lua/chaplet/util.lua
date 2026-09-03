@@ -57,4 +57,25 @@ function M.deep_equal(left, right)
   return true
 end
 
+--- Restore the buffer hidden by a scratch view, or close only if safe.
+function M.restore_previous_buffer_or_close(bufnr)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return false
+  end
+
+  local previous = vim.b[bufnr].chaplet_previous_buffer
+  if previous ~= nil and previous ~= bufnr and vim.api.nvim_buf_is_valid(previous) then
+    local ok = pcall(vim.api.nvim_set_current_buf, previous)
+    if ok then
+      return true
+    end
+  end
+
+  local windows = vim.api.nvim_list_wins()
+  if #windows <= 1 then
+    return false
+  end
+  return pcall(vim.api.nvim_win_close, vim.api.nvim_get_current_win(), false)
+end
+
 return M
