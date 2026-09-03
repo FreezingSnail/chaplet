@@ -36,7 +36,7 @@ Every bead supports metadata and dependency controls.  Open lifecycle states
 can be claimed, deferred, closed, duplicated, or superseded; closed beads can
 be reopened.  Staged and human-specific actions remain state-aware."
   (append '(comment edit-design edit-field new assign priority label-add
-                    label-remove dependency-add dependency-remove)
+                    label-remove dependency-add dependency-remove refresh view)
           (if (string= state "closed")
               '(reopen)
             '(claim defer close duplicate supersede))

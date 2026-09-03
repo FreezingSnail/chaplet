@@ -1,0 +1,4 @@
+  [a] A open
+└  [b] B open
+└│  [c] C blocked
+└┐  [d] D deferred

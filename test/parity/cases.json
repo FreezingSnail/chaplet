@@ -1,0 +1,13 @@
+[
+  {"name":"chain","kind":"graph","fixture":"fixtures/chain.json","goldens":{"layers":"golden/chain.layers.json","rows":"golden/chain.rows.json","order":"golden/chain.order.json","gutter":"golden/chain.gutter.txt"},"opts":{}},
+  {"name":"diamond","kind":"graph","fixture":"fixtures/diamond.json","goldens":{"layers":"golden/diamond.layers.json","rows":"golden/diamond.rows.json","order":"golden/diamond.order.json","gutter":"golden/diamond.gutter.txt"},"opts":{}},
+  {"name":"freed-and-reused","kind":"graph","fixture":"fixtures/freed-and-reused.json","goldens":{"layers":"golden/freed-and-reused.layers.json","rows":"golden/freed-and-reused.rows.json","order":"golden/freed-and-reused.order.json","gutter":"golden/freed-and-reused.gutter.txt"},"opts":{}},
+  {"name":"ghost-dep","kind":"graph","fixture":"fixtures/ghost-dep.json","goldens":{"layers":"golden/ghost-dep.layers.json","rows":"golden/ghost-dep.rows.json","order":"golden/ghost-dep.order.json","gutter":"golden/ghost-dep.gutter.txt"},"opts":{}},
+  {"name":"disconnected","kind":"graph","fixture":"fixtures/disconnected.json","goldens":{"layers":"golden/disconnected.layers.json","rows":"golden/disconnected.rows.json","order":"golden/disconnected.order.json","gutter":"golden/disconnected.gutter.txt"},"opts":{}},
+  {"name":"cycle","kind":"graph","fixture":"fixtures/cycle.json","goldens":{"layers":"golden/cycle.layers.json","rows":"golden/cycle.rows.json","order":"golden/cycle.order.json","gutter":"golden/cycle.gutter.txt"},"opts":{}},
+  {"name":"high-fan-out","kind":"graph","fixture":"fixtures/high-fan-out.json","goldens":{"layers":"golden/high-fan-out.layers.json","rows":"golden/high-fan-out.rows.json","order":"golden/high-fan-out.order.json","gutter":"golden/high-fan-out.gutter.txt"},"opts":{"text_lane_max":2}},
+  {"name":"diamond-align","kind":"graph","fixture":"fixtures/diamond.json","goldens":{"layers":"golden/diamond-align.layers.json","rows":"golden/diamond-align.rows.json","order":"golden/diamond-align.order.json","gutter":"golden/diamond-align.gutter.txt"},"opts":{"text_align":true}},
+  {"name":"normalize","kind":"normalize","fixture":"fixtures/normalize.json","goldens":{"normalize":"golden/normalize.json"},"opts":{}},
+  {"name":"filters","kind":"filters","fixture":"fixtures/filters.json","goldens":{"filters":"golden/filters.json"},"opts":{}},
+  {"name":"actions","kind":"actions","fixture":"fixtures/actions.json","goldens":{"actions":"golden/actions.json"},"opts":{}}
+]

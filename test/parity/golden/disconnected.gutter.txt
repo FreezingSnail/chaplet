@@ -1,0 +1,4 @@
+  [a] A open
+│  [x] X open
+└│  [b] B open
+ └  [y] Y open

@@ -1,0 +1,3 @@
+  [a] Alpha open
+└  [b] Beta open
+└  [c] Gamma closed

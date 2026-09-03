@@ -1,0 +1,5 @@
+  [a] A open
+└  [b] B open
+└│  [c] C open
+└│  [d] D open
+└─  [e] E open

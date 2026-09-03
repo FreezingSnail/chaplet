@@ -2332,3 +2332,158 @@ reports the incomplete command instead."
       (should (equal captured '("human" "respond" "bd-1" "--response" "approved")))
       (chaplet-bd-human-dismiss "bd-1" "obsolete")
       (should (equal captured '("human" "dismiss" "bd-1" "--reason" "obsolete"))))))
+
+;;; Shared parity fixtures (test/parity/cases.json)
+
+(defun chaplet-test--parity-read-json (relative)
+  "Read shared parity JSON RELATIVE to `chaplet-test--repo-root'."
+  (let ((path (expand-file-name (concat "test/parity/" relative)
+                                chaplet-test--repo-root)))
+    (unless (file-readable-p path)
+      (error "Missing parity file: %s" path))
+    (json-parse-string
+     (with-temp-buffer
+       (insert-file-contents-literally path)
+       (buffer-string))
+     :object-type 'alist :array-type 'list
+     :null-object nil :false-object nil)))
+
+(defun chaplet-test--parity-read-text (relative)
+  "Read shared parity bytes RELATIVE without writing or normalizing them."
+  (let ((path (expand-file-name (concat "test/parity/" relative)
+                                chaplet-test--repo-root)))
+    (unless (file-readable-p path)
+      (error "Missing parity file: %s" path))
+    (with-temp-buffer
+      (insert-file-contents-literally path)
+      (buffer-string))))
+
+(defun chaplet-test--parity-keyword-filters (filters)
+  "Convert JSON FILTERS object to the keyword alist used by Emacs bd."
+  (mapcar (lambda (entry)
+            (cons (intern (concat ":" (symbol-name (car entry))))
+                  (cdr entry)))
+          filters))
+
+(defun chaplet-test--parity-canonical (value)
+  "Drop nil object fields and sort object keys in VALUE."
+  (cond
+   ((and (consp value) (consp (car value))
+         (symbolp (caar value)))
+    (let ((entries (cl-remove-if (lambda (entry) (null (cdr entry)))
+                                  (copy-sequence value))))
+      (mapcar (lambda (entry)
+                (cons (car entry)
+                      (chaplet-test--parity-canonical (cdr entry))))
+              (sort entries (lambda (left right)
+                              (string< (symbol-name (car left))
+                                       (symbol-name (car right))))))))
+   ((listp value)
+    (mapcar #'chaplet-test--parity-canonical value))
+   (t value)))
+
+(defun chaplet-test--parity-graph (case fixture goldens)
+  "Assert one graph CASE against shared GOLDENS and FIXTURE."
+  (let* ((opts (alist-get 'opts case))
+         (nodes (chaplet-graph--nodes (alist-get 'beads fixture)))
+         (layout (chaplet-graph--layout nodes))
+         (all (car layout))
+         (edges (cdr layout))
+         (layers (chaplet-graph--layers all))
+         (rows (chaplet-graph--rows all layers))
+         (order (chaplet-graph--text-order all))
+         (layer-golden (chaplet-test--parity-read-json
+                        (alist-get 'layers goldens)))
+         (row-golden (chaplet-test--parity-read-json
+                      (alist-get 'rows goldens)))
+         (order-golden (chaplet-test--parity-read-json
+                        (alist-get 'order goldens))))
+    (let ((chaplet-graph--text-title-max
+           (or (alist-get 'text_title_max opts) 20))
+          (chaplet-graph--text-align (alist-get 'text_align opts))
+          (chaplet-graph--text-lane-max (alist-get 'text_lane_max opts)))
+      (should (string= (decode-coding-string
+                        (chaplet-test--parity-read-text
+                         (alist-get 'gutter goldens))
+                        'utf-8)
+                       (substring-no-properties
+                        (chaplet-graph--text-gutter all edges nil)))))
+    (dolist (node all)
+      (should (equal (alist-get (intern (plist-get node :id)) layer-golden)
+                     (gethash (plist-get node :id) layers))))
+    (should (= (length row-golden) (length rows)))
+    (cl-loop for row in rows
+             for expected in row-golden
+             do (should (equal (alist-get 'layer expected) (car row)))
+             do (should (equal (alist-get 'ids expected)
+                               (mapcar (lambda (node) (plist-get node :id))
+                                       (cdr row)))))
+    (should (equal order-golden
+                   (mapcar (lambda (node) (plist-get node :id)) order)))))
+
+(defun chaplet-test--parity-normalize (fixture goldens)
+  "Assert normalized beads in FIXTURE against GOLDENS."
+  (let ((actual (mapcar #'chaplet-bd--normalize (alist-get 'beads fixture)))
+        (expected (chaplet-test--parity-read-json
+                   (alist-get 'normalize goldens))))
+    (should (equal (chaplet-test--parity-canonical expected)
+                   (chaplet-test--parity-canonical actual)))))
+
+(defun chaplet-test--parity-filters (fixture goldens)
+  "Assert view and filter translations in FIXTURE against GOLDENS."
+  (let ((expected (chaplet-test--parity-read-json
+                   (alist-get 'filters goldens))))
+    (should (equal (chaplet-test--parity-canonical (alist-get 'views expected))
+                   (chaplet-test--parity-canonical
+                    (mapcar (lambda (view)
+                              (list (cons 'name (alist-get 'name view))
+                                    (cons 'filters (alist-get 'filters view))))
+                            (alist-get 'views fixture)))))
+    (cl-loop for item in (alist-get 'args fixture)
+             for golden in (alist-get 'args expected)
+             do (let ((actual (chaplet-bd--filters->args
+                               (chaplet-test--parity-keyword-filters
+                                (alist-get 'filters item)))))
+                  (should (equal (alist-get 'expect golden) actual))))
+    (cl-loop for item in (alist-get 'expr fixture)
+             for golden in (alist-get 'expr expected)
+             do (let ((actual (chaplet-bd--filters->expr
+                               (chaplet-test--parity-keyword-filters
+                                (alist-get 'filters item)))))
+                  (should (equal (alist-get 'expect golden) actual))))))
+
+(defun chaplet-test--parity-actions (fixture goldens)
+  "Assert action visibility sets in FIXTURE against GOLDENS."
+  (let ((expected (chaplet-test--parity-read-json
+                   (alist-get 'actions goldens))))
+    (cl-loop for item in (alist-get 'cases fixture)
+             for golden in expected
+             do (should (equal (sort (copy-sequence (alist-get 'actions golden))
+                                     #'string<)
+                               (sort (mapcar #'symbol-name
+                                             (chaplet-transient--actions-for-state
+                                              (or (alist-get 'state item) "")
+                                              (alist-get 'staged item)
+                                              (alist-get 'human item)))
+                                     #'string<))))))
+
+(defun chaplet-test--parity-run (case)
+  "Run one shared parity CASE by its manifest kind."
+  (let* ((fixture (chaplet-test--parity-read-json (alist-get 'fixture case)))
+         (goldens (alist-get 'goldens case))
+         (kind (alist-get 'kind case)))
+    (pcase kind
+      ("graph" (chaplet-test--parity-graph case fixture goldens))
+      ("normalize" (chaplet-test--parity-normalize fixture goldens))
+      ("filters" (chaplet-test--parity-filters fixture goldens))
+      ("actions" (chaplet-test--parity-actions fixture goldens))
+      (_ (error "Unknown parity case kind: %s" kind)))))
+
+(dolist (case (chaplet-test--parity-read-json "cases.json"))
+  (let ((name (intern (concat "chaplet-test-parity-"
+                              (replace-regexp-in-string
+                               "[^[:alnum:]]+" "-"
+                               (alist-get 'name case))))))
+    (eval `(ert-deftest ,name ()
+             ,(format "Shared parity case %s." (alist-get 'name case))
+             (chaplet-test--parity-run ',case)))))

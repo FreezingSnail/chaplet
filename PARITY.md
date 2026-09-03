@@ -311,3 +311,20 @@ Until then, PARITY behavior remains required.
 | Neovim | PARITY 3 — Read surface | The Neovim bridge is synchronous through one `M.invoke` choke point, matching the elisp `call-process` control flow. On Neovim 0.9, the bridge uses the `vim.fn.system` fallback path when `vim.system` is unavailable. | Async is a known performance divergence to revisit, not a parity break (epic D2). |
 | Neovim | PARITY 6 — List view | No interactive column sorting; the Elisp sort key is nil. | The Neovim list renders fixed columns and reserves sorting for later view work. |
 | Neovim | PARITY 6 — List view | Epic groups emit in stable ascending epic-id order; Emacs uses unspecified `maphash` order. | Stable ordering makes Lua rendering deterministic and specs testable. |
+| Neovim | PARITY 9 — Graph view | No inline SVG renderer; Neovim renders the canonical ASCII gutter-tree only. | Terminal Neovim has no portable inline SVG display path; layout math, node semantics, tunables, and bindings remain covered. |
+
+## 12. Shared parity suite
+
+`test/parity/cases.json` is the single manifest for the graph, normalization,
+view-filter, and action-visibility cases. Both `nvim/tests/parity_spec.lua` and
+the generated `chaplet-test-parity-*` ERT tests resolve fixtures and checked-in
+goldens from that manifest. Structured values are compared by value after
+object-key canonicalization; gutter goldens are compared as raw bytes, so
+lane whitespace remains significant. Missing fixtures or goldens fail loudly.
+
+Goldens are committed artifacts and normal `./check.sh` runs never write under
+`test/parity/`. Regeneration is an explicit reviewed operation only:
+`nvim --headless -u nvim/tests/minimal_init.lua -c 'lua dofile("test/parity/regenerate.lua")' -c 'qa!'`.
+Review the complete golden diff before accepting a regeneration. The graph
+cases cover chain, diamond, freed/reused lanes, ghost dependencies,
+disconnected components, cycles, capped fan-out, and aligned gutters.

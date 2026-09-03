@@ -1,0 +1,1 @@
+{"beads":[{"id":"a","title":"A","status":"open","dependencies":["b"]},{"id":"b","title":"B","status":"open","dependencies":["a"]}]}

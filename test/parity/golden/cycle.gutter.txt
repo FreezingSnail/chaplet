@@ -1,0 +1,2 @@
+  [a] A open
+└  [b] B open
