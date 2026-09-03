@@ -1,4 +1,5 @@
 local bar = require("chaplet.bar")
+local detail = require("chaplet.detail")
 local bd = require("chaplet.bd")
 local graph_nodes = require("chaplet.graph.nodes")
 local refresh = require("chaplet.refresh")
@@ -10,6 +11,11 @@ local M = {}
 M.BUFFER_NAME = "*chaplet:graph*"
 M.DEFAULT_VIEW = "all"
 M.SPECS = {
+  { key = "n", label = "next" },
+  { key = "p", label = "prev" },
+  { key = "<CR>", label = "open focused" },
+  { key = "d", label = "dependents" },
+  { key = "f", label = "deps" },
   { key = "g", label = "refresh" },
   { key = "q", label = "quit" },
 }
@@ -56,15 +62,36 @@ local function set_options(bufnr)
 end
 
 local function install_keys(bufnr)
-  for _, key in ipairs({ "g", "q" }) do
+  for _, key in ipairs({ "n", "p", "<CR>", "d", "f", "g", "q", "<LeftMouse>", "<MiddleMouse>" }) do
     pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", key)
   end
 
+  vim.keymap.set("n", "n", function()
+    M.focus_next(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "p", function()
+    M.focus_prev(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "<CR>", function()
+    M.open_focused(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "d", function()
+    M.jump_dependents(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "f", function()
+    M.jump_deps(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "g", function()
     M.refresh(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "q", function()
     vim.cmd("close")
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "<LeftMouse>", function()
+    M.mouse_open(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "<MiddleMouse>", function()
+    M.mouse_dependents(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
 end
 
@@ -141,21 +168,8 @@ local function place_spans(bufnr, row, spans)
   end
 end
 
---- Write the canonical text renderer and its id-addressable highlights.
-function M.render(bufnr, nodes, edges, focus)
-  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
-
-  local state = state_for(bufnr)
-  nodes = nodes or {}
-  edges = edges or {}
-  local lines, spans = text.lines(nodes, edges, focus)
-  local ordered = graph_nodes.order(nodes)
-  local line_ids = {}
-  for index, node in ipairs(ordered) do
-    line_ids[index] = node.id
-  end
+local function render_visual(bufnr, nodes, edges, focus)
+  local lines, spans = text.lines(nodes or {}, edges or {}, focus)
 
   vim.bo[bufnr].modifiable = true
   vim.bo[bufnr].readonly = false
@@ -166,6 +180,23 @@ function M.render(bufnr, nodes, edges, focus)
   end
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].readonly = true
+end
+
+--- Write the canonical text renderer and its id-addressable highlights.
+function M.render(bufnr, nodes, edges, focus)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local state = state_for(bufnr)
+  nodes = nodes or {}
+  edges = edges or {}
+  render_visual(bufnr, nodes, edges, focus)
+  local ordered = graph_nodes.order(nodes)
+  local line_ids = {}
+  for index, node in ipairs(ordered) do
+    line_ids[index] = node.id
+  end
 
   state.nodes = nodes
   state.edges = edges
@@ -176,6 +207,95 @@ function M.render(bufnr, nodes, edges, focus)
   set_options(bufnr)
   bar.install(bufnr, M.SPECS, M.EXTRAS)
   bar.update(bufnr, state.view, state.beads or {})
+end
+
+--- Set focus and redraw only the existing graph visual.
+function M.focus_set(bufnr, id)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+
+  local state = state_for(bufnr)
+  state.focus = id
+  state.rendered_focus = id
+  render_visual(bufnr, state.nodes, state.edges, id)
+end
+
+--- Move focus by DELTA positions in renderer order, wrapping at both ends.
+function M.focus_relative(bufnr, delta)
+  local state = states[bufnr]
+  local ordered = state and graph_nodes.order(state.nodes or {}) or {}
+  if #ordered == 0 then
+    return
+  end
+
+  local position = -1
+  for index, node in ipairs(ordered) do
+    if node.id == state.focus then
+      position = index - 1
+      break
+    end
+  end
+  local target = ordered[(position + delta) % #ordered + 1]
+  M.focus_set(bufnr, target.id)
+end
+
+function M.focus_next(bufnr)
+  M.focus_relative(bufnr, 1)
+end
+
+function M.focus_prev(bufnr)
+  M.focus_relative(bufnr, -1)
+end
+
+function M.open_focused(bufnr)
+  local state = states[bufnr]
+  if state == nil or state.focus == nil then
+    vim.notify("chaplet: no focused node", vim.log.levels.WARN)
+    return
+  end
+  detail.open(state.focus)
+end
+
+local function jump(bufnr, field, target_field, missing)
+  local state = states[bufnr]
+  local focus = state and state.focus
+  if state ~= nil and focus ~= nil then
+    for _, edge in ipairs(state.edges or {}) do
+      if edge[field] == focus then
+        M.focus_set(bufnr, edge[target_field])
+        return
+      end
+    end
+  end
+  vim.notify("chaplet: " .. missing .. (focus == nil and " (no focus)" or ""), vim.log.levels.WARN)
+end
+
+function M.jump_dependents(bufnr)
+  jump(bufnr, "to", "from", "no dependents")
+end
+
+function M.jump_deps(bufnr)
+  jump(bufnr, "from", "to", "no deps")
+end
+
+function M.mouse_open(bufnr)
+  local id = M.id_at_cursor(bufnr)
+  if id == nil then
+    vim.notify("chaplet: no node at click", vim.log.levels.WARN)
+    return
+  end
+  detail.open(id)
+end
+
+function M.mouse_dependents(bufnr)
+  local id = M.id_at_cursor(bufnr)
+  if id == nil then
+    vim.notify("chaplet: no node at click", vim.log.levels.WARN)
+    return
+  end
+  M.focus_set(bufnr, id)
+  M.jump_dependents(bufnr)
 end
 
 local function focused_node(nodes, focus)

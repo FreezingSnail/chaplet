@@ -312,6 +312,7 @@ Until then, PARITY behavior remains required.
 | Neovim | PARITY 6 — List view | No interactive column sorting; the Elisp sort key is nil. | The Neovim list renders fixed columns and reserves sorting for later view work. |
 | Neovim | PARITY 6 — List view | Epic groups emit in stable ascending epic-id order; Emacs uses unspecified `maphash` order. | Stable ordering makes Lua rendering deterministic and specs testable. |
 | Neovim | PARITY 9 — Graph view | No inline SVG renderer; Neovim renders the canonical ASCII gutter-tree only. | Terminal Neovim has no portable inline SVG display path; layout math, node semantics, tunables, and bindings remain covered. |
+| Neovim | PARITY 9 — Graph view | Mouse events resolve the node id from the cursor line via the rendered line map, rather than Emacs image-map hot-spots. Clicks outside node lines notify and do nothing. | Terminal Neovim has no inline image-map event regions; line-based resolution preserves node navigation without inventing a pixel-coordinate protocol. |
 
 ## 12. Shared parity suite
 
