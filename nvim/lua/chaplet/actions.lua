@@ -310,4 +310,207 @@ function M.new()
   end)
 end
 
+M.namespace = vim.api.nvim_create_namespace("chaplet_actions")
+M._context = nil
+M._bufnr = nil
+M._winid = nil
+
+local function has_label(bead, label)
+  for _, value in ipairs(bead.labels or {}) do
+    if value == label then
+      return true
+    end
+  end
+  return false
+end
+
+function M.context(id)
+  if type(id) ~= "string" or id == "" then
+    return nil
+  end
+
+  local bead = require("chaplet.bd").show(id)
+  if bead == nil then
+    return nil
+  end
+
+  return {
+    id = id,
+    state = bead.status,
+    staged = require("chaplet.list").staged(bead),
+    human = has_label(bead, require("chaplet.bd").HUMAN_LABEL),
+  }
+end
+
+function M.lines(ctx)
+  local lines = {}
+  local spans = {}
+  local previous_group
+  for _, spec in ipairs(M.SPEC) do
+    if M.visible(spec.action, ctx) then
+      if spec.group ~= previous_group then
+        previous_group = spec.group
+        lines[#lines + 1] = spec.group
+        spans[#spans + 1] = {
+          { col = 0, end_col = #spec.group, hl = "ChapletHeader" },
+        }
+      end
+      local line = "  " .. spec.key .. " " .. spec.label
+      lines[#lines + 1] = line
+      spans[#spans + 1] = {
+        { col = 2, end_col = 2 + #spec.key, hl = "ChapletId" },
+      }
+    end
+  end
+  return lines, spans
+end
+
+local function menu_dimensions(lines)
+  local width = 1
+  for _, line in ipairs(lines) do
+    width = math.max(width, vim.fn.strdisplaywidth(line))
+  end
+  return width, math.max(1, #lines)
+end
+
+local function menu_position(width, height)
+  return {
+    relative = "editor",
+    style = "minimal",
+    border = "rounded",
+    width = width,
+    height = height,
+    row = math.max(0, math.floor((vim.o.lines - height) / 2) - 1),
+    col = math.max(0, math.floor((vim.o.columns - width) / 2)),
+  }
+end
+
+local function configure_menu_buffer(bufnr, lines, spans)
+  vim.bo[bufnr].buftype = "nofile"
+  vim.bo[bufnr].bufhidden = "wipe"
+  vim.bo[bufnr].swapfile = false
+  vim.bo[bufnr].modifiable = true
+  vim.bo[bufnr].readonly = false
+  vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+  vim.bo[bufnr].modifiable = false
+  vim.bo[bufnr].readonly = true
+
+  for row, row_spans in ipairs(spans) do
+    for _, span in ipairs(row_spans) do
+      vim.api.nvim_buf_set_extmark(bufnr, M.namespace, row - 1, span.col, {
+        end_row = row - 1,
+        end_col = span.end_col,
+        hl_group = span.hl,
+      })
+    end
+  end
+end
+
+function M.dismiss()
+  local winid = M._winid
+  local bufnr = M._bufnr
+  M._context = nil
+  M._winid = nil
+  M._bufnr = nil
+
+  if winid ~= nil and vim.api.nvim_win_is_valid(winid) then
+    vim.api.nvim_win_close(winid, true)
+  end
+  if bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr) then
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end
+end
+
+local function run(action, id)
+  M.dismiss()
+  local handler = M.handlers[action]
+  if handler ~= nil then
+    handler(id)
+  end
+end
+
+local function install_menu_keys(bufnr, ctx)
+  for _, spec in ipairs(M.SPEC) do
+    if M.visible(spec.action, ctx) then
+      vim.keymap.set("n", spec.key, function()
+        run(spec.action, ctx.id)
+      end, { buffer = bufnr, silent = true, nowait = true })
+    end
+  end
+  vim.keymap.set("n", "q", M.dismiss, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "<Esc>", M.dismiss, { buffer = bufnr, silent = true, nowait = true })
+end
+
+function M.menu(ctx)
+  if ctx == nil then
+    return nil, nil
+  end
+
+  M.dismiss()
+  local lines, spans = M.lines(ctx)
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  configure_menu_buffer(bufnr, lines, spans)
+  local title = string.format("Bead %s (%s)", ctx.id, tostring(ctx.state))
+  local width, height = menu_dimensions(lines)
+  local winid = vim.api.nvim_open_win(bufnr, true, vim.tbl_extend("force", menu_position(width, height), {
+    title = title,
+    title_pos = "center",
+  }))
+
+  M._context = ctx
+  M._bufnr = bufnr
+  M._winid = winid
+  install_menu_keys(bufnr, ctx)
+  return bufnr, winid
+end
+
+function M.open_menu(bufnr)
+  M.dismiss()
+  local id = require("chaplet.list").id_at_cursor(bufnr)
+  if id == nil then
+    notify_missing_id()
+    return nil, nil
+  end
+
+  local ctx = M.context(id)
+  if ctx == nil then
+    vim.notify("chaplet: no bead " .. id, vim.log.levels.ERROR)
+    return nil, nil
+  end
+  return M.menu(ctx)
+end
+
+local function refresh_all()
+  require("chaplet.refresh").refresh_all()
+end
+
+local function switch_view()
+  require("chaplet.list").switch_view()
+end
+
+M.handlers = {
+  approve = function(id) return M.approve(id) end,
+  reject = function(id) return M.reject(id) end,
+  claim = function(id) return M.claim(id) end,
+  assign = function(id) return M.assign(id) end,
+  close = function(id) return M.close(id) end,
+  reopen = function(id) return M.reopen(id) end,
+  duplicate = function(id) return M.duplicate(id) end,
+  supersede = function(id) return M.supersede(id) end,
+  comment = function(id) return M.comment(id) end,
+  ["edit-design"] = function(id) return M.edit_design(id) end,
+  ["edit-field"] = function(id) return M.edit_field(id) end,
+  priority = function(id) return M.set_priority(id) end,
+  ["label-add"] = function(id) return M.add_label(id) end,
+  ["label-remove"] = function(id) return M.remove_label(id) end,
+  ["dependency-add"] = function(id) return M.add_dependency(id) end,
+  ["dependency-remove"] = function(id) return M.remove_dependency(id) end,
+  defer = function(id) return M.defer(id) end,
+  new = function(id) return M.new(id) end,
+  ["human-respond"] = function(id) return M.human_respond(id) end,
+  ["human-dismiss"] = function(id) return M.human_dismiss(id) end,
+  refresh = refresh_all,
+  view = switch_view,
+}
+
 return M

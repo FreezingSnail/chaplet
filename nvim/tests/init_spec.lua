@@ -21,19 +21,19 @@ describe("chaplet.setup", function()
     assert.is_true(graph.silent == 1)
   end)
 
-  it("warns without raising when list is unavailable", function()
-    local notification
-    local notify = vim.notify
-    vim.notify = function(message, level)
-      notification = { message = message, level = level }
+  it("routes Chaplet to list.open", function()
+    local list = require("chaplet.list")
+    local saved_open = list.open
+    local called = false
+    list.open = function()
+      called = true
     end
 
     local ok, err = pcall(vim.cmd, "Chaplet")
-    vim.notify = notify
+    list.open = saved_open
 
     assert.is_true(ok, err)
-    assert.equals("chaplet: list not available yet", notification.message)
-    assert.equals(vim.log.levels.WARN, notification.level)
+    assert.is_true(called)
   end)
 
   it("is safe to call twice", function()

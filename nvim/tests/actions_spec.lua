@@ -351,3 +351,148 @@ describe("chaplet.actions write commands", function()
     assert.equals(3, #notifications)
   end)
 end)
+
+
+describe("chaplet.actions menu", function()
+  local saved_bd
+  local saved_list
+  local saved_refresh
+  local saved_notify
+  local show_calls
+  local notifications
+  local beads
+
+  before_each(function()
+    saved_bd = package.loaded["chaplet.bd"]
+    saved_list = package.loaded["chaplet.list"]
+    saved_refresh = package.loaded["chaplet.refresh"]
+    saved_notify = vim.notify
+    show_calls = 0
+    notifications = {}
+    beads = {
+      ["bd-1"] = { id = "bd-1", status = "deferred", labels = { "review", "person" } },
+      ["bd-2"] = { id = "bd-2", status = "closed", labels = {} },
+    }
+    package.loaded["chaplet.bd"] = {
+      STAGED_LABEL = "review",
+      HUMAN_LABEL = "person",
+      show = function(id)
+        show_calls = show_calls + 1
+        return beads[id]
+      end,
+    }
+    package.loaded["chaplet.list"] = {
+      staged = function(bead)
+        return bead.status == "deferred" and vim.tbl_contains(bead.labels or {}, "review")
+      end,
+      id_at_cursor = function()
+        return "bd-1"
+      end,
+      switch_view = function() end,
+    }
+    package.loaded["chaplet.refresh"] = { refresh_all = function() end }
+    vim.notify = function(message, level)
+      notifications[#notifications + 1] = { message, level }
+    end
+  end)
+
+  after_each(function()
+    actions.dismiss()
+    package.loaded["chaplet.bd"] = saved_bd
+    package.loaded["chaplet.list"] = saved_list
+    package.loaded["chaplet.refresh"] = saved_refresh
+    vim.notify = saved_notify
+  end)
+
+  it("snapshots bead state once and renders groups in spec order", function()
+    local context = actions.context("bd-1")
+    assert.same({ id = "bd-1", state = "deferred", staged = true, human = true }, context)
+    assert.equals(1, show_calls)
+
+    local lines, spans = actions.lines(context)
+    local expected = {}
+    local previous_group
+    for _, spec in ipairs(actions.SPEC) do
+      if actions.visible(spec.action, context) then
+        if spec.group ~= previous_group then
+          previous_group = spec.group
+          expected[#expected + 1] = spec.group
+        end
+        expected[#expected + 1] = "  " .. spec.key .. " " .. spec.label
+      end
+    end
+    assert.same(expected, lines)
+    assert.equals(#lines, #spans)
+  end)
+
+  it("maps exactly visible actions plus dismissal keys", function()
+    local bufnr, winid = actions.open_menu(10)
+    local mapped = {}
+    for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
+      mapped[mapping.lhs] = true
+    end
+
+    local expected = { q = true, ["<Esc>"] = true }
+    local context = actions._context
+    for _, spec in ipairs(actions.SPEC) do
+      if actions.visible(spec.action, context) then
+        expected[spec.key] = true
+      end
+    end
+    assert.same(expected, mapped)
+    assert.is_true(vim.api.nvim_win_is_valid(winid))
+    assert.equals("nofile", vim.bo[bufnr].buftype)
+    assert.equals("wipe", vim.bo[bufnr].bufhidden)
+    assert.is_false(vim.bo[bufnr].modifiable)
+    assert.is_true(vim.bo[bufnr].readonly)
+    assert.equals(1, show_calls)
+  end)
+
+  it("dismisses before invoking the captured command without rereading", function()
+    local called
+    local original = actions.handlers.approve
+    actions.handlers.approve = function(id)
+      called = { id = id, window_open = actions._winid ~= nil }
+    end
+    local bufnr = actions.open_menu(10)
+    vim.api.nvim_buf_call(bufnr, function()
+      vim.api.nvim_feedkeys("a", "mx", false)
+    end)
+
+    assert.same({ id = "bd-1", window_open = false }, called)
+    assert.equals(1, show_calls)
+    assert.is_nil(actions._context)
+    actions.handlers.approve = original
+  end)
+
+  it("notifies without opening when the list has no bead", function()
+    package.loaded["chaplet.list"].id_at_cursor = function()
+      return nil
+    end
+    local before = #vim.api.nvim_list_wins()
+    actions.open_menu(10)
+
+    assert.equals(before, #vim.api.nvim_list_wins())
+    assert.equals(0, show_calls)
+    assert.same({ { "chaplet: no bead at point", vim.log.levels.ERROR } }, notifications)
+  end)
+
+  it("replaces an existing float on a second open", function()
+    local _, first = actions.open_menu(10)
+    local _, second = actions.open_menu(10)
+
+    assert.is_false(vim.api.nvim_win_is_valid(first))
+    assert.is_true(vim.api.nvim_win_is_valid(second))
+    assert.equals(1, #vim.tbl_filter(function(winid)
+      return vim.api.nvim_win_is_valid(winid)
+        and vim.api.nvim_win_get_config(winid).relative ~= ""
+    end, vim.api.nvim_list_wins()))
+    assert.equals(2, show_calls)
+  end)
+
+  it("exposes a callable handler for every action", function()
+    for _, spec in ipairs(actions.SPEC) do
+      assert.is_function(actions.handlers[spec.action])
+    end
+  end)
+end)

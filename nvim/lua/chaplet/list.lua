@@ -6,6 +6,7 @@ local refresh = require("chaplet.refresh")
 local M = {}
 
 M.BUFFER_NAME = "*chaplet*"
+M.DEFAULT_VIEW = "inbox"
 M.namespace = vim.api.nvim_create_namespace("chaplet_list")
 M.ns_id = M.namespace
 M._state = {}
@@ -48,7 +49,7 @@ function M.staged(bead)
   end
 
   for _, label in ipairs(bead.labels or {}) do
-    if label == "staged" then
+    if label == require("chaplet.bd").STAGED_LABEL then
       return true
     end
   end
@@ -189,6 +190,7 @@ local function state_for(bufnr)
       line_ids = {},
       cached_beads = nil,
       view = nil,
+      filters = {},
       attached = false,
     }
     buffers[bufnr] = state
@@ -341,17 +343,58 @@ function M.render(bufnr, beads)
   end
 end
 
+function M.current_view(bufnr)
+  local state = buffers[bufnr]
+  return (state and state.view) or M.DEFAULT_VIEW
+end
+
+function M.filters(bufnr)
+  local state = buffers[bufnr]
+  return state and vim.deepcopy(state.filters) or {}
+end
+
+function M.set_filters(bufnr, filters)
+  local state = state_for(bufnr)
+  state.filters = {}
+  for _, key in ipairs({ "type", "label" }) do
+    local value = filters and filters[key]
+    if value ~= nil and value ~= "" then
+      state.filters[key] = value
+    end
+  end
+  M.refresh(bufnr)
+end
+
+function M.fetch(view, filters)
+  local merged = {}
+  if view ~= nil then
+    local view_filters = bd.view_filters(view)
+    if view_filters == nil then
+      return nil
+    end
+    for key, value in pairs(view_filters) do
+      merged[key] = value
+    end
+  end
+  for key, value in pairs(filters or {}) do
+    if value ~= nil and value ~= "" then
+      merged[key] = value
+    end
+  end
+
+  if merged.all or (view == nil and next(merged) == nil) then
+    return bd.list(next(merged) and merged or nil)
+  end
+  return bd.query(bd.filters_to_expr(merged))
+end
+
 function M.refresh(bufnr)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
     return
   end
 
   local state = state_for(bufnr)
-  local filters
-  if state.view ~= nil then
-    filters = bd.view_filters(state.view)
-  end
-  local beads = bd.list(filters)
+  local beads = M.fetch(state.view, state.filters)
   refresh.mark_fetch(bufnr)
 
   if beads == nil or util.deep_equal(beads, state.cached_beads) then
@@ -370,7 +413,7 @@ local function open_at_cursor(bufnr)
 end
 
 local function install_keys(bufnr)
-  for _, key in ipairs({ "<CR>", "<LeftMouse>", "q" }) do
+  for _, key in ipairs({ "<CR>", "<LeftMouse>", "q", "v", "?" }) do
     pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", key)
   end
 
@@ -382,6 +425,12 @@ local function install_keys(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "q", function()
     vim.cmd("close")
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "v", function()
+    M.switch_view(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "?", function()
+    require("chaplet.actions").open_menu(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
 end
 
@@ -397,9 +446,37 @@ M.buffer = function()
   return bufnr
 end
 
--- Lifecycle entry point arrives with the later list-view implementation.
-function M.set_view()
-  vim.notify("chaplet: list not available yet", vim.log.levels.WARN)
+function M.switch_view(bufnr)
+  vim.ui.select(bd.view_names(), { prompt = "View: " }, function(view)
+    if view ~= nil then
+      M.set_view(view)
+    end
+  end)
+end
+
+function M.set_view(view)
+  if bd.view_filters(view) == nil then
+    vim.notify("chaplet: unknown view " .. tostring(view), vim.log.levels.ERROR)
+    return nil
+  end
+
+  local bufnr = M.buffer()
+  local state = state_for(bufnr)
+  state.view = view
+  M.clear_epic_cache()
+  local beads = M.fetch(view, state.filters)
+  refresh.mark_fetch(bufnr)
+  if beads ~= nil then
+    M.render(bufnr, beads)
+  else
+    vim.notify("chaplet: list not available yet", vim.log.levels.WARN)
+  end
+  vim.api.nvim_set_current_buf(bufnr)
+  return bufnr
+end
+
+function M.open()
+  return M.set_view(M.DEFAULT_VIEW)
 end
 
 return M

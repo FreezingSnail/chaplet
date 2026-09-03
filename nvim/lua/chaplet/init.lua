@@ -13,7 +13,7 @@ local function open_list()
     unavailable("list")
     return
   end
-  list.set_view("inbox")
+  list.open()
 end
 
 local function open_graph()

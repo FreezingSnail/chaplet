@@ -272,7 +272,7 @@ describe("chaplet.list render", function()
     return bufnr
   end
 
-  it("reuses one read-only scratch buffer and installs the three keys", function()
+  it("reuses one read-only scratch buffer and installs the four keys", function()
     local first = new_buffer()
     local second = list.buffer()
 
@@ -288,7 +288,13 @@ describe("chaplet.list render", function()
     for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(first, "n")) do
       mapped[mapping.lhs] = true
     end
-    assert.same({ ["<CR>"] = true, ["<LeftMouse>"] = true, q = true }, mapped)
+    assert.same({
+      ["<CR>"] = true,
+      ["<LeftMouse>"] = true,
+      q = true,
+      v = true,
+      ["?"] = true,
+    }, mapped)
   end)
 
   it("renders the header first and maps only row lines to ids", function()
@@ -375,5 +381,150 @@ describe("chaplet.list render", function()
     assert.same({ { "chaplet: no bead at point", vim.log.levels.WARN } }, notifications)
     assert.equals(0, show_calls)
     assert.equals(0, list_calls)
+  end)
+end)
+
+
+describe("chaplet.list views", function()
+  local saved_list
+  local saved_query
+  local saved_view_filters
+  local saved_view_names
+  local saved_mark_fetch
+  local saved_notify
+  local saved_select
+  local list_calls
+  local query_calls
+  local marks
+  local notifications
+
+  before_each(function()
+    saved_list = bd.list
+    saved_query = bd.query
+    saved_view_filters = bd.view_filters
+    saved_view_names = bd.view_names
+    saved_mark_fetch = require("chaplet.refresh").mark_fetch
+    saved_notify = vim.notify
+    saved_select = vim.ui.select
+    list_calls = {}
+    query_calls = {}
+    marks = {}
+    notifications = {}
+    config.setup({ auto_refresh = false })
+    bd.view_filters = function(view)
+      return ({
+        inbox = { status = "deferred" },
+        open = { status = "open" },
+        closed = { status = "closed" },
+        all = { all = true },
+      })[view]
+    end
+    bd.view_names = function()
+      return { "inbox", "open", "closed", "all" }
+    end
+    bd.list = function(filters)
+      list_calls[#list_calls + 1] = filters and vim.deepcopy(filters) or nil
+      return {}
+    end
+    bd.query = function(expr)
+      query_calls[#query_calls + 1] = expr
+      return {}
+    end
+    require("chaplet.refresh").mark_fetch = function(bufnr)
+      marks[#marks + 1] = bufnr
+    end
+    vim.notify = function(message, level)
+      notifications[#notifications + 1] = { message, level }
+    end
+  end)
+
+  after_each(function()
+    local bufnr = vim.fn.bufnr(list.BUFFER_NAME)
+    if bufnr ~= -1 and vim.api.nvim_buf_is_valid(bufnr) then
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end
+    bd.list = saved_list
+    bd.query = saved_query
+    bd.view_filters = saved_view_filters
+    bd.view_names = saved_view_names
+    require("chaplet.refresh").mark_fetch = saved_mark_fetch
+    vim.notify = saved_notify
+    vim.ui.select = saved_select
+    config.setup()
+  end)
+
+  it("exports inbox as the default view and opens it", function()
+    assert.equals("inbox", list.DEFAULT_VIEW)
+    local bufnr = list.open()
+
+    assert.equals("inbox", list.current_view(bufnr))
+    assert.equals(1, #query_calls)
+    assert.same({ "status=deferred" }, query_calls)
+    assert.equals(bufnr, vim.api.nvim_get_current_buf())
+  end)
+
+  it("fetches all views with list and filtered views with query", function()
+    assert.same({}, list.fetch("all", {}))
+    assert.same({}, list.fetch("open", { type = "task", label = "human" }))
+
+    assert.same({ { all = true } }, list_calls)
+    assert.same({ "status=open AND type=task AND label=human" }, query_calls)
+  end)
+
+  it("sets and clears buffer filters server-side", function()
+    local bufnr = list.set_view("all")
+    list.set_filters(bufnr, { type = "task", label = "" })
+
+    assert.same({ type = "task" }, list.filters(bufnr))
+    assert.same({ { all = true }, { all = true, type = "task" } }, list_calls)
+    assert.same({}, query_calls)
+
+    list.set_filters(bufnr, { type = "", label = "" })
+    assert.same({}, list.filters(bufnr))
+    assert.same({
+      { all = true },
+      { all = true, type = "task" },
+      { all = true },
+    }, list_calls)
+  end)
+
+  it("marks one fetch before displaying and reuses one buffer across switches", function()
+    local events = {}
+    local mark = require("chaplet.refresh").mark_fetch
+    require("chaplet.refresh").mark_fetch = function(bufnr)
+      events[#events + 1] = "mark"
+      mark(bufnr)
+    end
+    local display = vim.api.nvim_set_current_buf
+    vim.api.nvim_set_current_buf = function(bufnr)
+      events[#events + 1] = "display"
+      return display(bufnr)
+    end
+
+    local first = list.set_view("open")
+    assert.equals("open", list.current_view(first))
+    local second = list.set_view("closed")
+    assert.equals("closed", list.current_view(second))
+    local third = list.set_view("all")
+    assert.equals("all", list.current_view(third))
+    vim.api.nvim_set_current_buf = display
+
+    assert.equals(first, second)
+    assert.equals(second, third)
+    assert.same({ "mark", "display", "mark", "display", "mark", "display" }, events)
+    assert.equals(3, #marks)
+  end)
+
+  it("leaves the current view unchanged for unknown or cancelled switches", function()
+    local bufnr = list.set_view("open")
+    list.set_view("missing")
+    assert.equals("open", list.current_view(bufnr))
+    assert.same({ { "chaplet: unknown view missing", vim.log.levels.ERROR } }, notifications)
+
+    vim.ui.select = function(_, _, callback)
+      callback(nil)
+    end
+    list.switch_view(bufnr)
+    assert.equals("open", list.current_view(bufnr))
   end)
 end)
