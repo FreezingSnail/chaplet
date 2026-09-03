@@ -126,4 +126,105 @@ describe("nodes", function()
     local shuffled = { original[4], original[2], original[1], original[3] }
     assert.same(nodes.layers(original), nodes.layers(shuffled))
   end)
+
+  describe("rows", function()
+    it("sorts nodes inside ascending layer rows and defaults missing layers to zero", function()
+      local a = { id = "a", deps = {} }
+      local b = { id = "b", deps = { "a" } }
+      local c = { id = "c", deps = { "a" } }
+      local list = { c, b, a, { id = "z", deps = {} } }
+      local rows = nodes.rows(list, { a = 1, b = 3, c = 3 })
+
+      assert.same({
+        { layer = 0, nodes = { list[4] } },
+        { layer = 1, nodes = { a } },
+        { layer = 3, nodes = { b, c } },
+      }, rows)
+    end)
+  end)
+
+  describe("order", function()
+    it("does not mutate input while sorting by id", function()
+      local first = { id = "z", deps = {} }
+      local second = { id = "a", deps = {} }
+      local list = { first, second }
+
+      assert.same({ second, first }, nodes.sort_by_id(list))
+      assert.same({ first, second }, list)
+    end)
+
+    it("puts dependencies before dependents in a diamond", function()
+      local list = {
+        { id = "d", deps = { "b", "c" } },
+        { id = "c", deps = { "a" } },
+        { id = "b", deps = { "a" } },
+        { id = "a", deps = {} },
+      }
+      local ordered = nodes.order(list)
+
+      assert.same({ "a", "b", "c", "d" }, vim.tbl_map(function(item)
+        return item.id
+      end, ordered))
+    end)
+
+    it("orders ghost-completed chains with the ghost first", function()
+      local all = nodes.add_ghosts({
+        { id = "b", deps = { "a" } },
+        { id = "a", deps = { "missing" } },
+      })
+
+      assert.same({ "missing", "a", "b" }, vim.tbl_map(function(item)
+        return item.id
+      end, nodes.order(all)))
+    end)
+  end)
+
+  describe("edges and dependents", function()
+    it("includes every dependency in node and dependency order", function()
+      local list = {
+        { id = "b", deps = { "a", "missing" } },
+        { id = "c", deps = { "a" } },
+      }
+
+      assert.same({
+        { from = "b", to = "a" },
+        { from = "b", to = "missing" },
+        { from = "c", to = "a" },
+      }, nodes.edges(list))
+    end)
+
+    it("seeds leaves and pushes dependents in reverse encounter order", function()
+      local order = {
+        { id = "a" },
+        { id = "b" },
+        { id = "c" },
+        { id = "d" },
+      }
+      local edges = {
+        { from = "b", to = "a" },
+        { from = "c", to = "a" },
+        { from = "d", to = "b" },
+      }
+
+      assert.same({ a = { "c", "b" }, b = { "d" }, c = {}, d = {} }, nodes.dependents(edges, order))
+    end)
+  end)
+
+  describe("graph", function()
+    it("returns ghost-completed nodes with matching edges", function()
+      local all, edges = nodes.graph({
+        { id = "b", title = "B", dependencies = { "a" } },
+        { id = "a", title = "A", dependencies = { "missing" } },
+      })
+
+      assert.same({ "b", "a", "missing" }, vim.tbl_map(function(item)
+        return item.id
+      end, all))
+      assert.is_true(all[3].ghost)
+      assert.same({
+        { from = "b", to = "a" },
+        { from = "a", to = "missing" },
+      }, edges)
+    end)
+  end)
 end)

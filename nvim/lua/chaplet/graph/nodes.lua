@@ -149,4 +149,78 @@ function M.layers(list)
   return layers
 end
 
+--- Return a copied list sorted by ascending node id.
+function M.sort_by_id(list)
+  local result = vim.list_extend({}, list or {})
+  table.sort(result, function(left, right)
+    return left.id < right.id
+  end)
+  return result
+end
+
+--- Group nodes into ascending layer rows, sorting each row by id.
+function M.rows(list, layers)
+  local buckets = {}
+  local layer_keys = {}
+
+  for _, item in ipairs(list or {}) do
+    local layer = (layers and layers[item.id]) or 0
+    if not buckets[layer] then
+      buckets[layer] = {}
+      layer_keys[#layer_keys + 1] = layer
+    end
+    buckets[layer][#buckets[layer] + 1] = item
+  end
+
+  table.sort(layer_keys)
+  local result = {}
+  for _, layer in ipairs(layer_keys) do
+    result[#result + 1] = {
+      layer = layer,
+      nodes = M.sort_by_id(buckets[layer]),
+    }
+  end
+  return result
+end
+
+--- Return nodes flattened by ascending layer, then ascending id.
+function M.order(list)
+  local result = {}
+  local layers = M.layers(list or {})
+  for _, row in ipairs(M.rows(list, layers)) do
+    vim.list_extend(result, row.nodes)
+  end
+  return result
+end
+
+--- Return dependency edges in node and dependency encounter order.
+function M.edges(list)
+  local result = {}
+  for _, item in ipairs(list or {}) do
+    for _, dependency in ipairs(item.deps or {}) do
+      result[#result + 1] = { from = item.id, to = dependency }
+    end
+  end
+  return result
+end
+
+--- Return dependent ids per node, preserving reverse edge encounter order.
+function M.dependents(edges, order)
+  local result = {}
+  for _, item in ipairs(order or {}) do
+    result[item.id] = {}
+  end
+  for _, edge in ipairs(edges or {}) do
+    result[edge.to] = result[edge.to] or {}
+    table.insert(result[edge.to], 1, edge.from)
+  end
+  return result
+end
+
+--- Convert beads, complete missing dependency ghosts, and return nodes/edges.
+function M.graph(beads)
+  local list = M.add_ghosts(M.from_beads(beads))
+  return list, M.edges(list)
+end
+
 return M
