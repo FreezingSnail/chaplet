@@ -17,6 +17,8 @@ M.SPECS = {
   { key = "d", label = "dependents" },
   { key = "f", label = "deps" },
   { key = "g", label = "refresh" },
+  { key = "v", label = "view switch" },
+  { key = "c", label = "closed" },
   { key = "q", label = "quit" },
 }
 M.EXTRAS = {
@@ -34,11 +36,13 @@ local function state_for(bufnr)
   if state == nil then
     state = {
       view = M.DEFAULT_VIEW,
+      closed = false,
       beads = nil,
       nodes = nil,
       edges = nil,
       focus = nil,
       rendered_view = nil,
+      rendered_closed = nil,
       rendered_focus = nil,
       line_ids = {},
       attached = false,
@@ -62,7 +66,7 @@ local function set_options(bufnr)
 end
 
 local function install_keys(bufnr)
-  for _, key in ipairs({ "n", "p", "<CR>", "d", "f", "g", "q", "<LeftMouse>", "<MiddleMouse>" }) do
+  for _, key in ipairs({ "n", "p", "<CR>", "d", "f", "g", "v", "c", "q", "<LeftMouse>", "<MiddleMouse>" }) do
     pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", key)
   end
 
@@ -83,6 +87,12 @@ local function install_keys(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "g", function()
     M.refresh(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "v", function()
+    M.switch_view(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "c", function()
+    M.toggle_closed(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "q", function()
     vim.cmd("close")
@@ -202,11 +212,13 @@ function M.render(bufnr, nodes, edges, focus)
   state.edges = edges
   state.focus = focus
   state.rendered_view = state.view
+  state.rendered_closed = state.closed
   state.rendered_focus = focus
   state.line_ids = line_ids
   set_options(bufnr)
   bar.install(bufnr, M.SPECS, M.EXTRAS)
-  bar.update(bufnr, state.view, state.beads or {})
+  local status_view = state.view .. (state.closed and " [closed]" or "")
+  bar.update(bufnr, status_view, state.beads or {})
 end
 
 --- Set focus and redraw only the existing graph visual.
@@ -298,6 +310,45 @@ function M.mouse_dependents(bufnr)
   M.jump_dependents(bufnr)
 end
 
+function M.closed(bufnr)
+  local state = states[bufnr]
+  return state ~= nil and state.closed == true
+end
+
+function M.set_view(bufnr, view)
+  if bd.view_filters(view) == nil then
+    vim.notify("chaplet: unknown view " .. tostring(view), vim.log.levels.ERROR)
+    return nil
+  end
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local state = state_for(bufnr)
+  state.view = view
+  M.refresh(bufnr)
+  return bufnr
+end
+
+function M.switch_view(bufnr)
+  vim.ui.select(bd.view_names(), { prompt = "View: " }, function(view)
+    if view ~= nil then
+      M.set_view(bufnr, view)
+    end
+  end)
+end
+
+function M.toggle_closed(bufnr)
+  if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+
+  local state = state_for(bufnr)
+  state.closed = not state.closed
+  M.refresh(bufnr)
+  return state.closed
+end
+
 local function focused_node(nodes, focus)
   if focus == nil then
     return nil
@@ -317,8 +368,13 @@ function M.refresh(bufnr)
   end
 
   local state = state_for(bufnr)
-  local beads = bd.graph_data(bd.view_filters(state.view))
+  local filters = vim.deepcopy(bd.view_filters(state.view) or {})
+  if state.closed then
+    filters.all = true
+  end
+  local beads = bd.graph_data(filters)
   refresh.mark_fetch(bufnr)
+  bd.graph_dot({ closed = state.closed })
   if type(beads) ~= "table" or #beads == 0 then
     vim.notify("chaplet: no graph data", vim.log.levels.WARN)
     return
@@ -328,6 +384,7 @@ function M.refresh(bufnr)
   local focus = focused_node(nodes, state.focus)
   local changed = not util.deep_equal(beads, state.beads)
     or state.view ~= state.rendered_view
+    or state.closed ~= state.rendered_closed
     or focus ~= state.rendered_focus
 
   state.beads = beads

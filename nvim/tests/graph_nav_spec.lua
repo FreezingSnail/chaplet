@@ -15,7 +15,7 @@ end
 local function ids(bufnr)
   local result = {}
   for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(bufnr, "n")) do
-    if vim.tbl_contains({ "n", "p", "<CR>", "d", "f", "g", "q", "<LeftMouse>", "<MiddleMouse>" }, mapping.lhs) then
+    if vim.tbl_contains({ "n", "p", "<CR>", "d", "f", "g", "v", "c", "q", "<LeftMouse>", "<MiddleMouse>" }, mapping.lhs) then
       result[mapping.lhs] = true
     end
   end
@@ -59,7 +59,7 @@ describe("chaplet.graph buffer", function()
     assert.is_false(vim.bo[first].modifiable)
     assert.is_true(vim.bo[first].readonly)
     assert.same({ n = true, p = true, ["<CR>"] = true, d = true, f = true,
-      g = true, q = true, ["<LeftMouse>"] = true, ["<MiddleMouse>"] = true }, ids(first))
+      g = true, v = true, c = true, q = true, ["<LeftMouse>"] = true, ["<MiddleMouse>"] = true }, ids(first))
   end)
 
   it("renders text lines, extmarks, line ids, bar and statusline", function()
@@ -83,7 +83,7 @@ describe("chaplet.graph buffer", function()
 
     local marks = vim.api.nvim_buf_get_extmarks(bufnr, graph.namespace, 0, -1, {})
     assert.equals(3, #marks)
-    assert.equals(" [n] next [p] prev [<CR>] open focused [d] dependents [f] deps [g] refresh [q] quit [mouse-1] open node [mouse-2] dependents",
+    assert.equals(" [n] next [p] prev [<CR>] open focused [d] dependents [f] deps [g] refresh [v] view switch [c] closed [q] quit [mouse-1] open node [mouse-2] dependents",
       bar.rendered(bufnr).winbar)
     assert.matches("chaplet all · 0 beads", bar.rendered(bufnr).statusline)
   end)
@@ -91,6 +91,7 @@ end)
 
 describe("chaplet.graph refresh", function()
   local saved_graph_data
+  local saved_graph_dot
   local saved_mark_fetch
   local saved_notify
   local fetches
@@ -100,6 +101,7 @@ describe("chaplet.graph refresh", function()
   before_each(function()
     config.setup({ auto_refresh = false })
     saved_graph_data = bd.graph_data
+    saved_graph_dot = bd.graph_dot
     saved_mark_fetch = refresh.mark_fetch
     saved_notify = vim.notify
     fetches = 0
@@ -112,6 +114,9 @@ describe("chaplet.graph refresh", function()
         { id = "bd-1", title = "One", status = "open", dependencies = {} },
       }
     end
+    bd.graph_dot = function()
+      return "digraph G {}"
+    end
     refresh.mark_fetch = function()
       marks = marks + 1
     end
@@ -122,6 +127,7 @@ describe("chaplet.graph refresh", function()
 
   after_each(function()
     bd.graph_data = saved_graph_data
+    bd.graph_dot = saved_graph_dot
     refresh.mark_fetch = saved_mark_fetch
     vim.notify = saved_notify
     delete_graph_buffer()
@@ -338,5 +344,114 @@ describe("chaplet.graph navigation", function()
     graph.mouse_dependents(bufnr)
 
     assert.equals("b", graph.state(bufnr).focus)
+  end)
+end)
+
+
+describe("chaplet.graph view and closed state", function()
+  local saved_graph_data
+  local saved_graph_dot
+  local saved_select
+  local saved_notify
+  local saved_mark_fetch
+  local fetch_filters
+  local beads
+  local notifications
+  local fake_bd
+
+  before_each(function()
+    local source = debug.getinfo(1, "S").source:sub(2)
+    local test_dir = vim.fn.fnamemodify(source, ":h")
+    fake_bd = vim.fn.fnamemodify(test_dir .. "/../../test/fake-bd", ":p")
+    config.setup({ auto_refresh = false, bd_program = fake_bd })
+    saved_graph_data = bd.graph_data
+    saved_graph_dot = bd.graph_dot
+    saved_select = vim.ui.select
+    saved_notify = vim.notify
+    saved_mark_fetch = refresh.mark_fetch
+    fetch_filters = {}
+    notifications = {}
+    beads = {
+      { id = "bd-1", title = "One", status = "open", dependencies = {} },
+    }
+    bd.graph_data = function(filters)
+      fetch_filters[#fetch_filters + 1] = vim.deepcopy(filters)
+      return vim.deepcopy(beads)
+    end
+    refresh.mark_fetch = function() end
+    vim.notify = function(message, level)
+      notifications[#notifications + 1] = { message, level }
+    end
+  end)
+
+  after_each(function()
+    bd.graph_data = saved_graph_data
+    bd.graph_dot = saved_graph_dot
+    vim.ui.select = saved_select
+    vim.notify = saved_notify
+    refresh.mark_fetch = saved_mark_fetch
+    delete_graph_buffer()
+  end)
+
+  it("switches views once, renders equal data, and handles dismissal and unknown names", function()
+    local bufnr = graph.buffer()
+    graph.refresh(bufnr)
+    local changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
+    local state = graph.state(bufnr)
+
+    vim.ui.select = function(items, opts, callback)
+      assert.same(bd.view_names(), items)
+      assert.equals("View: ", opts.prompt)
+      callback("open")
+    end
+    graph.switch_view(bufnr)
+
+    assert.equals("open", state.view)
+    assert.equals(2, #fetch_filters)
+    assert.same({ { all = true }, { status = "open" } }, fetch_filters)
+    assert.is_true(vim.api.nvim_buf_get_changedtick(bufnr) > changedtick)
+
+    vim.ui.select = function(_, _, callback)
+      callback(nil)
+    end
+    graph.switch_view(bufnr)
+    assert.equals("open", state.view)
+    assert.equals(2, #fetch_filters)
+
+    graph.set_view(bufnr, "missing")
+    assert.equals("open", state.view)
+    assert.equals(2, #fetch_filters)
+    assert.same({ { "chaplet: unknown view missing", vim.log.levels.ERROR } }, notifications)
+  end)
+
+  it("toggles DOT source and JSON filters, updates status, and preserves focus", function()
+    local bufnr = graph.buffer()
+    graph.refresh(bufnr)
+    local state = graph.state(bufnr)
+    state.focus = "bd-1"
+    state.rendered_focus = "bd-1"
+
+    assert.same({ fake_bd, "-C", bd.root(), "graph", "--dot", "--all" }, bd._last_argv)
+    assert.is_false(graph.closed(bufnr))
+
+    graph.toggle_closed(bufnr)
+    assert.is_true(graph.closed(bufnr))
+    assert.same({ { all = true }, { all = true } }, fetch_filters)
+    assert.same({ fake_bd, "-C", bd.root(), "list", "--format", "dot", "--all" }, bd._last_argv)
+    assert.equals("bd-1", state.focus)
+    assert.matches("chaplet all %[%w+%]", bar.rendered(bufnr).statusline)
+    assert.matches("closed", bar.rendered(bufnr).statusline)
+
+    graph.toggle_closed(bufnr)
+    assert.is_false(graph.closed(bufnr))
+    assert.same({ fake_bd, "-C", bd.root(), "graph", "--dot", "--all" }, bd._last_argv)
+    assert.equals("bd-1", state.focus)
+
+    beads = {
+      { id = "bd-2", title = "Two", status = "open", dependencies = {} },
+    }
+    graph.toggle_closed(bufnr)
+    assert.is_nil(state.focus)
+    assert.is_nil(state.rendered_focus)
   end)
 end)
