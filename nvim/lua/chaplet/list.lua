@@ -2,6 +2,7 @@ local util = require("chaplet.util")
 local hl = require("chaplet.hl")
 local bd = require("chaplet.bd")
 local refresh = require("chaplet.refresh")
+local bar = require("chaplet.bar")
 
 local M = {}
 
@@ -307,12 +308,14 @@ function M.render(bufnr, beads)
   local lines = { header }
   local line_ids = {}
   local rendered_spans = { header_spans }
+  local rendered_beads = {}
 
   for _, row in ipairs(rows) do
     local formatted = M.format_row(row.bead, row.indent)
     lines[#lines + 1] = formatted.text
     line_ids[#lines] = row.bead.id
     rendered_spans[#rendered_spans + 1] = formatted.spans
+    rendered_beads[#rendered_beads + 1] = row.bead
   end
 
   local winid = vim.fn.bufwinid(bufnr)
@@ -341,6 +344,7 @@ function M.render(bufnr, beads)
   if winid ~= -1 then
     restore_cursor(winid, cursor, lines)
   end
+  bar.update(bufnr, M.current_view(bufnr), rendered_beads)
 end
 
 function M.current_view(bufnr)
@@ -437,6 +441,7 @@ end
 local function attach_refresh_and_keys(bufnr, state)
   attach_refresh(bufnr, state)
   install_keys(bufnr)
+  bar.install(bufnr, bar.SPECS)
 end
 
 local original_buffer = M.buffer
