@@ -2,6 +2,7 @@ local list = require("chaplet.list")
 local bd = require("chaplet.bd")
 local hl = require("chaplet.hl")
 local util = require("chaplet.util")
+local config = require("chaplet.config")
 
 describe("chaplet.list row formatting", function()
   it("exports the fixed columns", function()
@@ -202,5 +203,177 @@ describe("chaplet.list grouping", function()
     assert.equals(fetched, first)
     assert.equals(fetched, second)
     assert.equals(1, calls)
+  end)
+end)
+
+describe("chaplet.list render", function()
+  local saved_list
+  local saved_show
+  local saved_mark_fetch
+  local saved_notify
+  local saved_detail
+  local current_beads
+  local list_calls
+  local show_calls
+  local marked
+  local notifications
+
+  before_each(function()
+    saved_list = bd.list
+    saved_show = bd.show
+    saved_mark_fetch = require("chaplet.refresh").mark_fetch
+    saved_notify = vim.notify
+    saved_detail = package.loaded["chaplet.detail"]
+    config.setup({ auto_refresh = false })
+    current_beads = {
+      { id = "bd-1", issue_type = "task", status = "open", title = "First" },
+    }
+    list_calls = 0
+    show_calls = 0
+    marked = {}
+    notifications = {}
+    bd.list = function()
+      list_calls = list_calls + 1
+      return vim.deepcopy(current_beads)
+    end
+    bd.show = function()
+      show_calls = show_calls + 1
+      return nil
+    end
+    require("chaplet.refresh").mark_fetch = function(bufnr)
+      marked[#marked + 1] = bufnr
+    end
+    vim.notify = function(message, level)
+      notifications[#notifications + 1] = { message, level }
+    end
+    package.loaded["chaplet.detail"] = {
+      open = function(id)
+        package.loaded["chaplet.detail"].opened = id
+      end,
+    }
+  end)
+
+  after_each(function()
+    local bufnr = vim.fn.bufnr(list.BUFFER_NAME)
+    if bufnr ~= -1 and vim.api.nvim_buf_is_valid(bufnr) then
+      vim.api.nvim_buf_delete(bufnr, { force = true })
+    end
+    bd.list = saved_list
+    bd.show = saved_show
+    require("chaplet.refresh").mark_fetch = saved_mark_fetch
+    config.setup()
+    vim.notify = saved_notify
+    package.loaded["chaplet.detail"] = saved_detail
+  end)
+
+  local function new_buffer()
+    local bufnr = list.buffer()
+    vim.api.nvim_set_current_buf(bufnr)
+    return bufnr
+  end
+
+  it("reuses one read-only scratch buffer and installs the three keys", function()
+    local first = new_buffer()
+    local second = list.buffer()
+
+    assert.equals(first, second)
+    assert.equals("nofile", vim.bo[first].buftype)
+    assert.equals("hide", vim.bo[first].bufhidden)
+    assert.is_false(vim.bo[first].swapfile)
+    assert.is_false(vim.bo[first].modifiable)
+    assert.is_true(vim.bo[first].readonly)
+    assert.is_false(vim.wo.wrap)
+
+    local mapped = {}
+    for _, mapping in ipairs(vim.api.nvim_buf_get_keymap(first, "n")) do
+      mapped[mapping.lhs] = true
+    end
+    assert.same({ ["<CR>"] = true, ["<LeftMouse>"] = true, q = true }, mapped)
+  end)
+
+  it("renders the header first and maps only row lines to ids", function()
+    local bufnr = new_buffer()
+    list.render(bufnr, current_beads)
+
+    local header = list.header_line()
+    assert.equals(header, vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1])
+    assert.is_nil(list.line_id(bufnr, 1))
+    assert.equals("bd-1", list.line_id(bufnr, 2))
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    assert.equals("bd-1", list.id_at_cursor(bufnr))
+
+    vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    assert.is_nil(list.id_at_cursor(bufnr))
+    assert.is_nil(list.line_id(bufnr, 3))
+    assert.same(current_beads, list.beads(bufnr))
+  end)
+
+  it("places extmarks at every formatter span", function()
+    local bufnr = new_buffer()
+    list.render(bufnr, current_beads)
+    local _, header_spans = list.header_line()
+    local row = list.format_row(current_beads[1], false)
+    local expected = { header_spans, row.spans }
+    local marks = vim.api.nvim_buf_get_extmarks(bufnr, list.namespace, 0, -1, { details = true })
+
+    assert.equals(#header_spans + #row.spans, #marks)
+    local index = 1
+    for line, spans in ipairs(expected) do
+      for _, span in ipairs(spans) do
+        assert.equals(line - 1, marks[index][2])
+        assert.equals(span.col, marks[index][3])
+        assert.equals(line - 1, marks[index][4].end_row)
+        assert.equals(span.end_col, marks[index][4].end_col)
+        index = index + 1
+      end
+    end
+  end)
+
+  it("skips equal refreshes, preserving changedtick and cursor", function()
+    local bufnr = new_buffer()
+    list.refresh(bufnr)
+    vim.api.nvim_win_set_cursor(0, { 2, 4 })
+    local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+    list_calls = 0
+
+    list.refresh(bufnr)
+
+    assert.equals(1, list_calls)
+    assert.equals(tick, vim.api.nvim_buf_get_changedtick(bufnr))
+    assert.same({ 2, 4 }, vim.api.nvim_win_get_cursor(0))
+    assert.same({ bufnr, bufnr }, marked)
+  end)
+
+  it("restores cursor position after a changed render", function()
+    local bufnr = new_buffer()
+    list.refresh(bufnr)
+    vim.api.nvim_win_set_cursor(0, { 2, 4 })
+    local tick = vim.api.nvim_buf_get_changedtick(bufnr)
+    current_beads[1].title = "Changed"
+
+    list.refresh(bufnr)
+
+    assert.equals(2, vim.api.nvim_win_get_cursor(0)[1])
+    assert.equals(4, vim.api.nvim_win_get_cursor(0)[2])
+    assert.is_true(vim.api.nvim_buf_get_changedtick(bufnr) > tick)
+  end)
+
+  it("opens row ids and notifies without opening on the header", function()
+    local bufnr = new_buffer()
+    list.render(bufnr, current_beads)
+
+    vim.api.nvim_win_set_cursor(0, { 2, 0 })
+    local keys = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
+    vim.api.nvim_feedkeys(keys, "mx", false)
+    assert.equals("bd-1", package.loaded["chaplet.detail"].opened)
+    assert.equals(0, show_calls)
+
+    package.loaded["chaplet.detail"].opened = nil
+    vim.api.nvim_win_set_cursor(0, { 1, 0 })
+    vim.api.nvim_feedkeys(keys, "mx", false)
+    assert.is_nil(package.loaded["chaplet.detail"].opened)
+    assert.same({ { "chaplet: no bead at point", vim.log.levels.WARN } }, notifications)
+    assert.equals(0, show_calls)
+    assert.equals(0, list_calls)
   end)
 end)
