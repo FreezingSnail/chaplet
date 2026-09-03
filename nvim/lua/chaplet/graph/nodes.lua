@@ -84,4 +84,69 @@ function M.add_ghosts(list)
   return result
 end
 
+--- Assign each node its longest root-to-node dependency path length.
+function M.layers(list)
+  local ids = {}
+  local known = {}
+  local deps_of = {}
+  local indegree = {}
+  local dependents = {}
+  local layers = {}
+
+  for _, item in ipairs(list or {}) do
+    local id = item.id
+    ids[#ids + 1] = id
+    known[id] = true
+    deps_of[id] = item.deps or {}
+    indegree[id] = 0
+    dependents[id] = {}
+  end
+  table.sort(ids)
+
+  for _, id in ipairs(ids) do
+    for _, dependency in ipairs(deps_of[id]) do
+      if known[dependency] then
+        indegree[id] = indegree[id] + 1
+        dependents[dependency][#dependents[dependency] + 1] = id
+      end
+    end
+  end
+
+  local queue = {}
+  for _, id in ipairs(ids) do
+    if indegree[id] == 0 then
+      queue[#queue + 1] = id
+    end
+  end
+
+  while #queue > 0 do
+    local id = table.remove(queue, 1)
+    local layer = 0
+    for _, dependency in ipairs(deps_of[id]) do
+      layer = math.max(layer, (layers[dependency] or 0) + 1)
+    end
+    layers[id] = layer
+
+    for _, consumer in ipairs(dependents[id]) do
+      indegree[consumer] = indegree[consumer] - 1
+      if indegree[consumer] == 0 then
+        queue[#queue + 1] = consumer
+        table.sort(queue)
+      end
+    end
+  end
+
+  for _, id in ipairs(ids) do
+    if layers[id] == nil then
+      local layer = 0
+      for _, dependency in ipairs(deps_of[id]) do
+        layer = math.max(layer, (layers[dependency] or 0) + 1)
+      end
+      layers[id] = layer
+    end
+  end
+
+  return layers
+end
+
 return M

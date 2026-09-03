@@ -66,4 +66,64 @@ describe("nodes", function()
     assert.equals("closed", all[3].state)
     assert.is_true(all[4].ghost)
   end)
+
+  it("assigns chain layers from roots", function()
+    assert.same({ a = 0, b = 1, c = 2 }, nodes.layers({
+      { id = "a", deps = {} },
+      { id = "b", deps = { "a" } },
+      { id = "c", deps = { "b" } },
+    }))
+  end)
+
+  it("uses the longest path in a diamond", function()
+    local layers = nodes.layers({
+      { id = "a", deps = {} },
+      { id = "b", deps = { "a" } },
+      { id = "c", deps = { "a" } },
+      { id = "d", deps = { "b", "c" } },
+      { id = "e", deps = { "d", "a" } },
+    })
+    assert.equals(2, layers.d)
+    assert.equals(3, layers.e)
+  end)
+
+  it("treats unknown dependencies as virtual roots", function()
+    local layers = nodes.layers({
+      { id = "a", deps = { "missing" } },
+      { id = "b", deps = { "a", "ghost" } },
+    })
+    assert.equals(1, layers.a)
+    assert.equals(2, layers.b)
+    assert.is_nil(layers.missing)
+    assert.is_nil(layers.ghost)
+  end)
+
+  it("starts disconnected components at zero", function()
+    assert.same({ a = 0, b = 1, x = 0, y = 1 }, nodes.layers({
+      { id = "a", deps = {} },
+      { id = "b", deps = { "a" } },
+      { id = "x", deps = {} },
+      { id = "y", deps = { "x" } },
+    }))
+  end)
+
+  it("assigns every node when dependencies contain a cycle", function()
+    local layers = nodes.layers({
+      { id = "a", deps = { "b" } },
+      { id = "b", deps = { "a" } },
+    })
+    assert.equals(1, layers.a)
+    assert.equals(2, layers.b)
+  end)
+
+  it("is invariant under input permutation", function()
+    local original = {
+      { id = "a", deps = {} },
+      { id = "b", deps = { "a" } },
+      { id = "c", deps = { "a" } },
+      { id = "d", deps = { "b", "c" } },
+    }
+    local shuffled = { original[4], original[2], original[1], original[3] }
+    assert.same(nodes.layers(original), nodes.layers(shuffled))
+  end)
 end)
