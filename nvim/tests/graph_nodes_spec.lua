@@ -1,0 +1,69 @@
+local nodes = require("chaplet.graph.nodes")
+local util = require("chaplet.util")
+
+describe("nodes", function()
+  it("converts normalized beads and computes staged state", function()
+    assert.same({
+      id = "bd-1",
+      title = "Review",
+      state = "deferred",
+      staged = true,
+      type = "task",
+      priority = 2,
+      deps = { "bd-0" },
+    }, nodes.node({
+      id = "bd-1",
+      title = "Review",
+      status = "deferred",
+      labels = { "staged", "other" },
+      issue_type = "task",
+      priority = 2,
+      dependencies = { "bd-0" },
+    }))
+    assert.is_false(nodes.node({ status = "deferred", labels = { "other" } }).staged)
+    assert.is_false(nodes.node({ status = "open", labels = { "staged" } }).staged)
+  end)
+
+  it("defaults missing dependencies to an empty table", function()
+    assert.same({}, nodes.node({ id = "bd-1", title = "No deps" }).deps)
+    assert.equals("bd-1", nodes.from_beads({ { id = "bd-1", title = "One" } })[1].id)
+  end)
+
+  it("truncates titles to the configured display width", function()
+    local title = "日本語" .. string.rep("x", 30)
+    local truncated = nodes.truncate(title, nodes.TITLE_MAX)
+
+    assert.equals(nodes.TITLE_MAX, util.width(truncated))
+    assert.equals(util.truncate(title, nodes.TITLE_MAX - 1) .. "…", truncated)
+    assert.equals(truncated, nodes.node({ title = title }).title)
+    assert.equals(title, nodes.truncate(title, util.width(title)))
+  end)
+
+  it("creates closed ghost nodes with a bounded title", function()
+    local ghost = nodes.ghost("missing-id")
+
+    assert.same({
+      id = "missing-id",
+      title = "missing-id (closed)",
+      state = "closed",
+      deps = {},
+      ghost = true,
+    }, ghost)
+    assert.equals(nodes.TITLE_MAX, util.width(nodes.ghost(string.rep("x", 40)).title))
+  end)
+
+  it("appends each unknown dependency once after real nodes", function()
+    local real = nodes.from_beads({
+      { id = "a", title = "A", dependencies = { "missing", "b" } },
+      { id = "b", title = "B", dependencies = { "missing", "other" } },
+    })
+    local all = nodes.add_ghosts(real)
+
+    assert.same({ "a", "b", "missing", "other" }, vim.tbl_map(function(item)
+      return item.id
+    end, all))
+    assert.is_true(all[3].ghost)
+    assert.equals("closed", all[3].state)
+    assert.is_true(all[4].ghost)
+  end)
+end)
