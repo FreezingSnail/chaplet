@@ -26,6 +26,7 @@ M.COLUMNS = {
 local HEADER_GROUP = "ChapletHeader"
 local ID_GROUP = "ChapletId"
 local STAGED_GROUP = "ChapletStaged"
+local BUFFER_MARKER = "chaplet_list_scratch"
 
 local function string_value(value)
   if value == nil then
@@ -232,11 +233,7 @@ local function attach_refresh(bufnr, state)
 end
 
 function M.buffer()
-  local bufnr = vim.fn.bufnr(M.BUFFER_NAME)
-  if bufnr == -1 or not vim.api.nvim_buf_is_valid(bufnr) then
-    bufnr = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(bufnr, M.BUFFER_NAME)
-  end
+  local bufnr = util.scratch_buffer(M.BUFFER_NAME, BUFFER_MARKER)
 
   set_options(bufnr)
   local state = state_for(bufnr)

@@ -129,6 +129,19 @@ describe("chaplet.detail", function()
     assert.equals(first, refresh_calls.marked)
   end)
 
+  it("does not adopt a terminal whose name wildcard-matches", function()
+    vim.cmd("terminal sh -c 'sleep 30'")
+    local terminal = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_name(terminal, "/fzf-lua/*chaplet:detail*/hide")
+
+    local ok, bufnr = pcall(detail.open, "bd-1")
+
+    assert.is_true(ok, bufnr)
+    assert.not_equals(terminal, bufnr)
+    assert.equals(detail.BUFFER_NAME, vim.api.nvim_buf_get_name(bufnr):sub(-#detail.BUFFER_NAME))
+    vim.api.nvim_buf_delete(terminal, { force = true })
+  end)
+
   it("returns to the replaced buffer on q in a single window", function()
     local prior = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_set_current_buf(prior)

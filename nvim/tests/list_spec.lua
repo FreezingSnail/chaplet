@@ -275,11 +275,15 @@ describe("chaplet.list render", function()
   it("reuses one read-only scratch buffer and installs the four keys", function()
     local first = new_buffer()
     local second = list.buffer()
+    vim.bo[first].buflisted = true
+    local third = list.buffer()
 
     assert.equals(first, second)
+    assert.equals(first, third)
     assert.equals("nofile", vim.bo[first].buftype)
     assert.equals("hide", vim.bo[first].bufhidden)
     assert.is_false(vim.bo[first].swapfile)
+    assert.equals(0, vim.fn.buflisted(first))
     assert.is_false(vim.bo[first].modifiable)
     assert.is_true(vim.bo[first].readonly)
     assert.is_false(vim.wo.wrap)
@@ -295,6 +299,19 @@ describe("chaplet.list render", function()
       v = true,
       ["?"] = true,
     }, mapped)
+  end)
+
+  it("does not adopt a terminal whose name wildcard-matches", function()
+    vim.cmd("terminal sh -c 'sleep 30'")
+    local terminal = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_name(terminal, "/fzf-lua/*chaplet*/hide")
+
+    local ok, bufnr = pcall(list.buffer)
+
+    assert.is_true(ok, bufnr)
+    assert.not_equals(terminal, bufnr)
+    assert.equals(list.BUFFER_NAME, vim.api.nvim_buf_get_name(bufnr):sub(-#list.BUFFER_NAME))
+    vim.api.nvim_buf_delete(terminal, { force = true })
   end)
 
   it("renders the header first and maps only row lines to ids", function()

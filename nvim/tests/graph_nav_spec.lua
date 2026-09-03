@@ -62,6 +62,19 @@ describe("chaplet.graph buffer", function()
       g = true, v = true, c = true, q = true, ["<LeftMouse>"] = true, ["<MiddleMouse>"] = true }, ids(first))
   end)
 
+  it("does not adopt a terminal whose name wildcard-matches", function()
+    vim.cmd("terminal sh -c 'sleep 30'")
+    local terminal = vim.api.nvim_get_current_buf()
+    vim.api.nvim_buf_set_name(terminal, "/fzf-lua/*chaplet:graph*/hide")
+
+    local ok, bufnr = pcall(graph.buffer)
+
+    assert.is_true(ok, bufnr)
+    assert.not_equals(terminal, bufnr)
+    assert.equals(graph.BUFFER_NAME, vim.api.nvim_buf_get_name(bufnr):sub(-#graph.BUFFER_NAME))
+    vim.api.nvim_buf_delete(terminal, { force = true })
+  end)
+
   it("renders text lines, extmarks, line ids, bar and statusline", function()
     local bufnr = graph.buffer()
     local nodes = {

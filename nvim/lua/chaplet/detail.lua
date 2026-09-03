@@ -6,6 +6,8 @@ local M = {}
 
 M.BUFFER_NAME = "*chaplet:detail*"
 
+local BUFFER_MARKER = "chaplet_detail_scratch"
+
 local function value(field, fallback)
   if field == nil then
     return fallback or ""
@@ -197,11 +199,7 @@ end
 
 function M.open(id)
   local previous = vim.api.nvim_get_current_buf()
-  local bufnr = vim.fn.bufnr(M.BUFFER_NAME)
-  if bufnr == -1 then
-    bufnr = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(bufnr, M.BUFFER_NAME)
-  end
+  local bufnr = util.scratch_buffer(M.BUFFER_NAME, BUFFER_MARKER)
 
   if previous ~= bufnr and vim.api.nvim_buf_is_valid(previous) then
     vim.b[bufnr].chaplet_previous_buffer = previous

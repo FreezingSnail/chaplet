@@ -35,6 +35,20 @@ function M.cell(value, target_width)
   return M.pad(M.truncate(value, target_width), target_width)
 end
 
+--- Return a Chaplet-owned scratch buffer identified by a persistent buffer marker.
+function M.scratch_buffer(name, marker)
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_valid(bufnr) and vim.b[bufnr][marker] then
+      return bufnr
+    end
+  end
+
+  local bufnr = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_buf_set_name(bufnr, name)
+  vim.b[bufnr][marker] = true
+  return bufnr
+end
+
 function M.deep_equal(left, right)
   if left == right then
     return true

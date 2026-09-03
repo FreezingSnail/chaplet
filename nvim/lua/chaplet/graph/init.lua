@@ -30,6 +30,7 @@ M.ns_id = M.namespace
 M._state = {}
 
 local states = M._state
+local BUFFER_MARKER = "chaplet_graph_scratch"
 
 local function state_for(bufnr)
   local state = states[bufnr]
@@ -126,11 +127,7 @@ end
 
 --- Return the single unlisted scratch buffer used by every graph view.
 function M.buffer()
-  local bufnr = vim.fn.bufnr(M.BUFFER_NAME)
-  if bufnr == -1 or not vim.api.nvim_buf_is_valid(bufnr) then
-    bufnr = vim.api.nvim_create_buf(false, true)
-    vim.api.nvim_buf_set_name(bufnr, M.BUFFER_NAME)
-  end
+  local bufnr = util.scratch_buffer(M.BUFFER_NAME, BUFFER_MARKER)
 
   local state = state_for(bufnr)
   set_options(bufnr)
