@@ -309,3 +309,4 @@ Until then, PARITY behavior remains required.
 | Plugin | PARITY section | Divergence | Rationale |
 | --- | --- | --- | --- |
 | Neovim | PARITY 3 — Read surface | The Neovim bridge is synchronous through one `M.invoke` choke point, matching the elisp `call-process` control flow. On Neovim 0.9, the bridge uses the `vim.fn.system` fallback path when `vim.system` is unavailable. | Async is a known performance divergence to revisit, not a parity break (epic D2). |
+| Neovim | PARITY 6 — List view | Epic groups emit in stable ascending epic-id order; Emacs uses unspecified `maphash` order. | Stable ordering makes Lua rendering deterministic and specs testable. |

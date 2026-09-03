@@ -1,5 +1,6 @@
 local util = require("chaplet.util")
 local hl = require("chaplet.hl")
+local bd = require("chaplet.bd")
 
 local M = {}
 
@@ -105,6 +106,72 @@ function M.format_row(bead, indent)
   end
 
   return { text = table.concat(parts), spans = spans }
+end
+
+local EPIC_CACHE_NIL = {}
+local epic_cache = {}
+
+function M.clear_epic_cache()
+  epic_cache = {}
+end
+
+function M.fetch_epic(id)
+  local cached = epic_cache[id]
+  if cached == EPIC_CACHE_NIL then
+    return nil
+  end
+  if cached ~= nil then
+    return cached
+  end
+
+  local bead = bd.show(id)
+  epic_cache[id] = bead or EPIC_CACHE_NIL
+  return bead
+end
+
+function M.group_by_epic(beads, fetch_epic)
+  fetch_epic = fetch_epic or M.fetch_epic
+
+  local by_parent = {}
+  local epics_in_view = {}
+  local orphans = {}
+
+  for _, bead in ipairs(beads or {}) do
+    if bead.issue_type == "epic" then
+      epics_in_view[bead.id] = bead
+      by_parent[bead.id] = by_parent[bead.id] or {}
+    elseif bead.parent ~= nil then
+      by_parent[bead.parent] = by_parent[bead.parent] or {}
+      table.insert(by_parent[bead.parent], bead)
+    else
+      table.insert(orphans, bead)
+    end
+  end
+
+  local epic_ids = {}
+  for epic_id in pairs(by_parent) do
+    table.insert(epic_ids, epic_id)
+  end
+  table.sort(epic_ids, function(left, right)
+    return tostring(left) < tostring(right)
+  end)
+
+  local ordered = {}
+  for _, epic_id in ipairs(epic_ids) do
+    local epic = epics_in_view[epic_id] or fetch_epic(epic_id)
+    if epic ~= nil then
+      table.insert(ordered, { bead = epic, indent = false })
+    end
+    for _, child in ipairs(by_parent[epic_id]) do
+      table.insert(ordered, { bead = child, indent = true })
+    end
+  end
+
+  for _, bead in ipairs(orphans) do
+    table.insert(ordered, { bead = bead, indent = false })
+  end
+
+  return ordered
 end
 
 -- Lifecycle entry point arrives with the later list-view implementation.
