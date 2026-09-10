@@ -82,16 +82,24 @@ function M.header_line()
   return text, { { col = 0, end_col = #text, hl = HEADER_GROUP } }
 end
 
-function M.format_row(bead, indent)
+function M.format_row(bead, indent, prefix)
   bead = bead or {}
   local staged = M.staged(bead)
+  local title_prefix = type(prefix) == "string" and prefix or ""
+  if title_prefix == "" then
+    if type(indent) == "number" and indent > 0 then
+      title_prefix = string.rep("  ", indent)
+    elseif indent then
+      title_prefix = "  "
+    end
+  end
   local cells = {
     string_value(bead.id),
     string_value(bead.issue_type),
     string_value(bead.status),
     M.priority_cell(bead.priority),
     staged and "✔" or "",
-    (indent and "  " or "") .. string_value(bead.title),
+    title_prefix .. string_value(bead.title),
   }
   local groups = {
     ID_GROUP,
@@ -140,46 +148,183 @@ function M.fetch_epic(id)
   return bead
 end
 
+local BRANCH = "├── "
+local LAST = "└── "
+local PIPE = "│   "
+local BLANK = "    "
+
+--- Order beads as a bd list tree: every in-result issue that depends on an
+--- epic renders beneath that epic — under EVERY epic it depends on, exactly
+--- like `bd list`'s recursive expansion.  Roots are issues that are never a
+--- child; ordering is (priority asc, natural id asc).  Explicit `parent`
+--- links keep PARITY 6 grouping for beads not nested via dependencies, and
+--- absent or unresolvable parents render their children under a virtual
+--- anchor so nothing is dropped.
 function M.group_by_epic(beads, fetch_epic)
   fetch_epic = fetch_epic or M.fetch_epic
 
-  local by_parent = {}
-  local epics_in_view = {}
-  local orphans = {}
+  local by_id = {}
+  local result_ids = {}
+  local epics = {}
+  local children = {}
+  local is_child = {}
+
+  local function ensure_children(id)
+    children[id] = children[id] or {}
+  end
 
   for _, bead in ipairs(beads or {}) do
+    by_id[bead.id] = bead
+    result_ids[bead.id] = true
     if bead.issue_type == "epic" then
-      epics_in_view[bead.id] = bead
-      by_parent[bead.id] = by_parent[bead.id] or {}
-    elseif bead.parent ~= nil then
-      by_parent[bead.parent] = by_parent[bead.parent] or {}
-      table.insert(by_parent[bead.parent], bead)
-    else
-      table.insert(orphans, bead)
+      epics[bead.id] = true
     end
   end
 
-  local epic_ids = {}
-  for epic_id in pairs(by_parent) do
-    table.insert(epic_ids, epic_id)
+  -- Dependency nesting: a dependency targeting an epic is hierarchical.
+  local added_child = {}
+  for _, bead in ipairs(beads or {}) do
+    local deps = vim.deepcopy(bead.dependencies or {})
+    table.sort(deps)
+    for _, dep in ipairs(deps) do
+      if dep ~= bead.id and epics[dep] and result_ids[dep] then
+        local key = dep .. ":" .. bead.id
+        if not added_child[key] then
+          added_child[key] = true
+          ensure_children(dep)
+          table.insert(children[dep], bead.id)
+          is_child[bead.id] = true
+        end
+      end
+    end
   end
-  table.sort(epic_ids, function(left, right)
-    return tostring(left) < tostring(right)
+
+  -- Explicit parent links (PARITY 6) for beads not nested via dependencies.
+  local parent_of = {}
+  local groups = {}
+  for _, bead in ipairs(beads or {}) do
+    if bead.parent ~= nil and not is_child[bead.id] then
+      parent_of[bead.id] = bead.parent
+      groups[bead.parent] = true
+      ensure_children(bead.parent)
+      table.insert(children[bead.parent], bead.id)
+      is_child[bead.id] = true
+    end
+  end
+
+  -- Absent parents: fetch the epic so the group keeps its header.  A nil
+  -- lookup keeps the children indented under a virtual anchor.  Fetch in
+  -- ascending id order so the calls stay deterministic.
+  local absent = {}
+  for _, parent_id in pairs(parent_of) do
+    if by_id[parent_id] == nil then
+      absent[parent_id] = true
+    end
+  end
+  local absent_ids = {}
+  for parent_id in pairs(absent) do
+    absent_ids[#absent_ids + 1] = parent_id
+  end
+  local fetched_roots = {}
+  table.sort(absent_ids)
+  for _, parent_id in ipairs(absent_ids) do
+    local epic = fetch_epic(parent_id)
+    if epic ~= nil then
+      by_id[parent_id] = epic
+      epics[parent_id] = true
+      fetched_roots[#fetched_roots + 1] = parent_id
+    end
+  end
+
+  local function priority_of(id)
+    local bead = by_id[id]
+    return bead ~= nil and bead.priority or math.huge
+  end
+
+  local function compare(left, right)
+    local left_priority = priority_of(left)
+    local right_priority = priority_of(right)
+    if left_priority ~= right_priority then
+      return left_priority < right_priority
+    end
+    return util.natural_compare(tostring(left), tostring(right)) < 0
+  end
+
+  for _, child_ids in pairs(children) do
+    table.sort(child_ids, function(left, right)
+      return compare(left, right)
+    end)
+  end
+
+  local roots = {}
+  for _, bead in ipairs(beads or {}) do
+    if not is_child[bead.id] then
+      roots[#roots + 1] = bead.id
+    end
+  end
+  for id in pairs(groups) do
+    if by_id[id] == nil then
+      roots[#roots + 1] = id
+    end
+  end
+  for _, id in ipairs(fetched_roots) do
+    roots[#roots + 1] = id
+  end
+  table.sort(roots, function(left, right)
+    local left_priority = priority_of(left)
+    local right_priority = priority_of(right)
+    if left_priority ~= right_priority then
+      return left_priority < right_priority
+    end
+    local left_epic = by_id[left] ~= nil and by_id[left].issue_type == "epic"
+    local right_epic = by_id[right] ~= nil and by_id[right].issue_type == "epic"
+    if left_epic ~= right_epic then
+      return left_epic
+    end
+    return util.natural_compare(tostring(left), tostring(right)) < 0
   end)
 
   local ordered = {}
-  for _, epic_id in ipairs(epic_ids) do
-    local epic = epics_in_view[epic_id] or fetch_epic(epic_id)
-    if epic ~= nil then
-      table.insert(ordered, { bead = epic, indent = false })
-    end
-    for _, child in ipairs(by_parent[epic_id]) do
-      table.insert(ordered, { bead = child, indent = true })
+
+  local function subtree(id, gutters, level)
+    local child_ids = children[id] or {}
+    for index, child_id in ipairs(child_ids) do
+      local last = index == #child_ids
+      if by_id[child_id] ~= nil then
+        ordered[#ordered + 1] = {
+          bead = by_id[child_id],
+          indent = level,
+          prefix = gutters .. (last and LAST or BRANCH),
+        }
+      end
+      subtree(child_id, gutters .. (last and BLANK or PIPE), level + 1)
     end
   end
 
-  for _, bead in ipairs(orphans) do
-    table.insert(ordered, { bead = bead, indent = false })
+  for _, id in ipairs(roots) do
+    if by_id[id] ~= nil then
+      ordered[#ordered + 1] = { bead = by_id[id], indent = 0, prefix = "" }
+    end
+    subtree(id, "", 1)
+  end
+
+  -- Unreachable beads (epic-target dependency cycles) render flat, in
+  -- natural id order, exactly once.
+  local emitted = {}
+  for _, row in ipairs(ordered) do
+    emitted[row.bead.id] = true
+  end
+  local leftover = {}
+  for _, bead in ipairs(beads or {}) do
+    if not emitted[bead.id] then
+      leftover[#leftover + 1] = bead
+    end
+  end
+  table.sort(leftover, function(left, right)
+    return util.natural_compare(tostring(left.id), tostring(right.id)) < 0
+  end)
+  for _, bead in ipairs(leftover) do
+    ordered[#ordered + 1] = { bead = bead, indent = 0, prefix = "" }
   end
 
   return ordered
@@ -306,13 +451,17 @@ function M.render(bufnr, beads)
   local line_ids = {}
   local rendered_spans = { header_spans }
   local rendered_beads = {}
+  local rendered_ids = {}
 
   for _, row in ipairs(rows) do
-    local formatted = M.format_row(row.bead, row.indent)
+    local formatted = M.format_row(row.bead, row.indent, row.prefix)
     lines[#lines + 1] = formatted.text
     line_ids[#lines] = row.bead.id
     rendered_spans[#rendered_spans + 1] = formatted.spans
-    rendered_beads[#rendered_beads + 1] = row.bead
+    if not rendered_ids[row.bead.id] then
+      rendered_ids[row.bead.id] = true
+      rendered_beads[#rendered_beads + 1] = row.bead
+    end
   end
 
   local winid = vim.fn.bufwinid(bufnr)
@@ -383,10 +532,7 @@ function M.fetch(view, filters)
     end
   end
 
-  if merged.all or (view == nil and next(merged) == nil) then
-    return bd.list(next(merged) and merged or nil)
-  end
-  return bd.query(bd.filters_to_expr(merged))
+  return bd.list(next(merged) and merged or nil)
 end
 
 function M.refresh(bufnr)
@@ -404,17 +550,17 @@ function M.refresh(bufnr)
   M.render(bufnr, beads)
 end
 
-local function open_at_cursor(bufnr)
+local function open_at_cursor(bufnr, vertical)
   local id = M.id_at_cursor(bufnr)
   if id == nil then
     vim.notify("chaplet: no bead at point", vim.log.levels.WARN)
     return
   end
-  require("chaplet.detail").open(id)
+  require("chaplet.detail").open(id, { vertical = vertical })
 end
 
 local function install_keys(bufnr)
-  for _, key in ipairs({ "<CR>", "<LeftMouse>", "q", "v", "?" }) do
+  for _, key in ipairs({ "<CR>", "<LeftMouse>", "q", "v", "?", "|" }) do
     pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", key)
   end
 
@@ -423,6 +569,9 @@ local function install_keys(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "<LeftMouse>", function()
     open_at_cursor(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "|", function()
+    open_at_cursor(bufnr, true)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "q", function()
     vim.cmd("close")

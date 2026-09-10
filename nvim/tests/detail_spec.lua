@@ -37,11 +37,12 @@ describe("chaplet.detail", function()
 
     package.loaded["chaplet.bd"] = {
       STAGED_LABEL = "staged",
-      show = function(id)
-        return beads[id]
-      end,
-      comments = function(id)
-        return comments[id]
+      detail = function(id)
+        local bead = beads[id]
+        if bead == nil then
+          return nil
+        end
+        return { bead = bead, comments = comments[id] }
       end,
     }
     package.loaded["chaplet.refresh"] = {
@@ -164,6 +165,48 @@ describe("chaplet.detail", function()
 
     assert.is_true(ok, err)
     assert.equals(bufnr, vim.api.nvim_get_current_buf())
+  end)
+
+  it("opens a vertical split and keeps the source window intact", function()
+    local prior = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(prior)
+    local windows = #vim.api.nvim_list_wins()
+
+    local bufnr = detail.open("bd-1", { vertical = true })
+
+    assert.is_true(vim.b[bufnr].chaplet_detail_vertical)
+    assert.equals(windows + 1, #vim.api.nvim_list_wins())
+    assert.equals(bufnr, vim.api.nvim_get_current_buf())
+    for _, winid in ipairs(vim.api.nvim_list_wins()) do
+      if winid ~= vim.api.nvim_get_current_win() then
+        assert.equals(prior, vim.api.nvim_win_get_buf(winid))
+      end
+    end
+    vim.cmd("silent! close")
+    vim.api.nvim_buf_delete(prior, { force = true })
+  end)
+
+  it("kills the split window on q", function()
+    local prior = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_set_current_buf(prior)
+    local bufnr = detail.open("bd-1", { vertical = true })
+    local windows = #vim.api.nvim_list_wins()
+
+    local keys = vim.api.nvim_replace_termcodes("q", true, false, true)
+    vim.api.nvim_feedkeys(keys, "mx", false)
+
+    assert.equals(windows - 1, #vim.api.nvim_list_wins())
+    assert.equals(prior, vim.api.nvim_get_current_buf())
+    vim.api.nvim_buf_delete(prior, { force = true })
+  end)
+
+  it("clears the split flag on a same-buffer open", function()
+    local bufnr = detail.open("bd-1", { vertical = true })
+    assert.is_true(vim.b[bufnr].chaplet_detail_vertical)
+
+    detail.open("bd-2")
+
+    assert.is_false(vim.b[bufnr].chaplet_detail_vertical)
   end)
 
   it("skips unchanged writes and preserves the cursor", function()

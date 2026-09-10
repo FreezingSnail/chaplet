@@ -17,6 +17,7 @@ describe("chaplet.bar", function()
   it("keeps candidate entries in display order", function()
     assert.same({
       { key = "<CR>", label = "open" },
+      { key = "|", label = "split" },
       { key = "v", label = "view switch" },
       { key = "s", label = "graph" },
       { key = "?", label = "actions" },
@@ -27,12 +28,13 @@ describe("chaplet.bar", function()
 
   it("includes only mapped candidates and always includes extras", function()
     local bufnr = new_buffer()
-    for _, key in ipairs({ "<CR>", "v", "?", "q", "<LeftMouse>" }) do
+    for _, key in ipairs({ "<CR>", "|", "v", "?", "q", "<LeftMouse>" }) do
       vim.api.nvim_buf_set_keymap(bufnr, "n", key, "<Nop>", {})
     end
 
     assert.same({
       { key = "<CR>", label = "open" },
+      { key = "|", label = "split" },
       { key = "v", label = "view switch" },
       { key = "?", label = "actions" },
       { key = "q", label = "quit" },
@@ -106,7 +108,7 @@ describe("chaplet.bar", function()
 
     local rendered = bar.rendered(bufnr)
     assert.equals("chaplet inbox · 2 beads · 1 open · 1 blocked", rendered.statusline)
-    assert.equals(" [<CR>] open [v] view switch [?] actions [q] quit [<LeftMouse>] open", rendered.winbar)
+    assert.equals(" [<CR>] open [|] split [v] view switch [?] actions [q] quit [<LeftMouse>] open", rendered.winbar)
 
     delete_buffer(bufnr)
   end)

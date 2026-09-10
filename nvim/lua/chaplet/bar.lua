@@ -2,6 +2,7 @@ local M = {}
 
 M.SPECS = {
   { key = "<CR>", label = "open" },
+  { key = "|", label = "split" },
   { key = "v", label = "view switch" },
   { key = "s", label = "graph" },
   { key = "?", label = "actions" },

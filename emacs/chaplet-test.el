@@ -214,16 +214,6 @@
   (should-not (chaplet-list--staged-p
                '((status . "open") (labels . nil)))))
 
-(ert-deftest chaplet-test-list-view-query ()
-  "`chaplet-list--view-query' maps views to bd query expressions."
-  (should (equal (chaplet-list--view-query 'inbox)
-                 "status=deferred"))
-  (should (equal (chaplet-list--view-query 'open) "status=open"))
-  (should (equal (chaplet-list--view-query 'in-progress) "status=in_progress"))
-  (should (equal (chaplet-list--view-query 'blocked) "status=blocked"))
-  (should (equal (chaplet-list--view-query 'closed) "status=closed"))
-  (should (null (chaplet-list--view-query 'all))))
-
 (ert-deftest chaplet-test-list-format ()
   "`chaplet-list--format' declares the expected columns."
   (should (equal chaplet-list--format
@@ -349,16 +339,6 @@ and points `mode-line-process' at it (no per-redisplay :eval)."
       (should (get-buffer "*chaplet:show bd-1*"))
       (should (with-current-buffer "*chaplet:show bd-1*"
                 (string-match-p "one" (buffer-string)))))))
-
-(ert-deftest chaplet-test-list-filters->query ()
-  "`chaplet-list--filters->query' composes filter clauses into a query."
-  (should (equal (chaplet-list--filters->query "status=open" nil)
-                 "status=open"))
-  (should (equal (chaplet-list--filters->query "status=open" '((:type . "task")))
-                 "status=open AND type=task"))
-  (should (equal (chaplet-list--filters->query
-                  "status=open" '((:type . "task") (:label . "staged")))
-                 "status=open AND type=task AND label=staged")))
 
 (ert-deftest chaplet-test-bd-comments ()
   "`chaplet-bd-comments' returns parsed comment alists."
@@ -785,8 +765,8 @@ current buffer when it is a chaplet list."
 that fires when the buffer is shown is debounced by `chaplet--last-fetch'."
   :tags '(:chaplet)
   (let ((fetches 0))
-    (cl-letf (((symbol-function 'chaplet-bd-query)
-               (lambda (_q) (cl-incf fetches) nil)))
+    (cl-letf (((symbol-function 'chaplet-bd-list)
+               (lambda (_filters) (cl-incf fetches) nil)))
       (unwind-protect
           (progn
             (chaplet-list-set-view 'inbox)
@@ -961,9 +941,9 @@ call executes."
   "`chaplet-list-set-view' to `closed` renders closed beads in-place.
 Uses the single shared `*chaplet*` buffer (no per-view buffers)."
   :tags '(:chaplet)
-  (cl-letf (((symbol-function 'chaplet-bd-query)
-             (lambda (_q) '(((id . "bd-9") (status . "closed")
-                             (issue_type . "task") (title . "done"))))))
+  (cl-letf (((symbol-function 'chaplet-bd-list)
+             (lambda (_filters) '(((id . "bd-9") (status . "closed")
+                                   (issue_type . "task") (title . "done"))))))
     (unwind-protect
         (progn
           (chaplet-list-set-view 'inbox)

@@ -90,6 +90,12 @@ local function capability()
   return vim.system ~= nil
 end
 
+local function build_argv(args)
+  local argv = { M.program(), "-C", M.root() }
+  vim.list_extend(argv, args)
+  return argv
+end
+
 local function absolute(path)
   path = vim.fn.fnamemodify(path, ":p")
   if path == "/" then
@@ -182,8 +188,7 @@ function M.invoke(args)
     error("chaplet: incomplete bd command (missing argument): " .. vim.inspect(args))
   end
 
-  local argv = { M.program(), "-C", M.root() }
-  vim.list_extend(argv, args)
+  local argv = build_argv(args)
   M._last_argv = vim.deepcopy(argv)
 
   if vim.fn.executable(M.program()) == 0 then
@@ -343,6 +348,34 @@ function M.comments(id)
     return nil
   end
   return M._parse(result.stdout)
+end
+
+--- Read one bead and its comments.  Embedded dolt pays a whole engine start
+--- per spawn and takes an exclusive lock, so parallel spawns serialize:
+--- instead, read comments only when the show payload reports any.
+--- Returns { bead = ..., comments = ... }, or nil when the show read fails.
+function M.detail(id)
+  local show_result = M.invoke({ "show", "--json", "--long", id })
+  if show_result.code ~= 0 then
+    return nil
+  end
+
+  local parsed = M._parse(show_result.stdout)
+  if parsed == nil then
+    return nil
+  end
+  local raw = parsed[1] or {}
+  local bead = M._normalize(raw)
+
+  local comments = {}
+  local count = tonumber(raw.comment_count) or 0
+  if count > 0 then
+    local comments_result = M.invoke({ "comments", id, "--json" })
+    if comments_result.code == 0 then
+      comments = M._parse(comments_result.stdout) or {}
+    end
+  end
+  return { bead = bead, comments = comments }
 end
 
 function M._ok(args)

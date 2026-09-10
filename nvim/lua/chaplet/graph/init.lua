@@ -14,6 +14,7 @@ M.SPECS = {
   { key = "n", label = "next" },
   { key = "p", label = "prev" },
   { key = "<CR>", label = "open focused" },
+  { key = "|", label = "open split" },
   { key = "d", label = "dependents" },
   { key = "f", label = "deps" },
   { key = "g", label = "refresh" },
@@ -67,7 +68,7 @@ local function set_options(bufnr)
 end
 
 local function install_keys(bufnr)
-  for _, key in ipairs({ "n", "p", "<CR>", "d", "f", "g", "v", "c", "q", "<LeftMouse>", "<MiddleMouse>" }) do
+  for _, key in ipairs({ "n", "p", "<CR>", "d", "f", "g", "v", "c", "q", "|", "<LeftMouse>", "<MiddleMouse>" }) do
     pcall(vim.api.nvim_buf_del_keymap, bufnr, "n", key)
   end
 
@@ -79,6 +80,9 @@ local function install_keys(bufnr)
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "<CR>", function()
     M.open_focused(bufnr)
+  end, { buffer = bufnr, silent = true, nowait = true })
+  vim.keymap.set("n", "|", function()
+    M.open_focused(bufnr, { vertical = true })
   end, { buffer = bufnr, silent = true, nowait = true })
   vim.keymap.set("n", "d", function()
     M.jump_dependents(bufnr)
@@ -257,13 +261,13 @@ function M.focus_prev(bufnr)
   M.focus_relative(bufnr, -1)
 end
 
-function M.open_focused(bufnr)
+function M.open_focused(bufnr, opts)
   local state = states[bufnr]
   if state == nil or state.focus == nil then
     vim.notify("chaplet: no focused node", vim.log.levels.WARN)
     return
   end
-  detail.open(state.focus)
+  detail.open(state.focus, opts)
 end
 
 local function jump(bufnr, field, target_field, missing)

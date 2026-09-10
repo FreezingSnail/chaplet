@@ -21,10 +21,9 @@ describe("chaplet.bd JSON reads", function()
     local beads = bd.list({ status = "open" })
 
     assert.same(expected_argv({ "list", "--json", "--status=open" }), bd._last_argv)
-    assert.equals(2, #beads)
+    assert.equals(1, #beads)
     assert.equals("bd-1", beads[1].id)
     assert.is_nil(beads[1].dependencies)
-    assert.same({ "bd-1" }, beads[2].dependencies)
   end)
 
   it("queries normalized beads", function()
@@ -34,6 +33,21 @@ describe("chaplet.bd JSON reads", function()
     assert.equals(1, #beads)
     assert.equals("bd-2", beads[1].id)
     assert.same({ "staged" }, beads[1].labels)
+  end)
+
+  it("reads a bead and skips comments when none exist", function()
+    local result = bd.detail("bd-2")
+
+    assert.same(expected_argv({ "show", "--json", "--long", "bd-2" }), bd._last_argv)
+    assert.equals("bd-2", result.bead.id)
+    assert.same({}, result.comments)
+  end)
+
+  it("reads a bead and its comments when the show reports any", function()
+    local result = bd.detail("bd-1")
+
+    assert.equals("bd-1", result.bead.id)
+    assert.equals("alice", result.comments[1].author)
   end)
 
   it("shows the first normalized bead with the long flag order", function()
@@ -73,6 +87,7 @@ describe("chaplet.bd JSON reads", function()
 
     assert.is_nil(bd.list())
     assert.is_nil(bd.query("status=open"))
+    assert.is_nil(bd.detail("bd-1"))
     assert.is_nil(bd.show("bd-1"))
     assert.is_nil(bd.comments("bd-1"))
   end)

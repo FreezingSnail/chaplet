@@ -124,11 +124,11 @@ describe("chaplet.list grouping", function()
     local rows = list.group_by_epic({ child_z, orphan, epic_z, child_a, epic_a })
 
     assert.same({
-      { bead = epic_a, indent = false },
-      { bead = child_a, indent = true },
-      { bead = epic_z, indent = false },
-      { bead = child_z, indent = true },
-      { bead = orphan, indent = false },
+      { bead = epic_a, indent = 0, prefix = "" },
+      { bead = child_a, indent = 1, prefix = "└── " },
+      { bead = epic_z, indent = 0, prefix = "" },
+      { bead = child_z, indent = 1, prefix = "└── " },
+      { bead = orphan, indent = 0, prefix = "" },
     }, rows)
   end)
 
@@ -143,9 +143,9 @@ describe("chaplet.list grouping", function()
     end
 
     assert.same({
-      { bead = fetched, indent = false },
-      { bead = child, indent = true },
-      { bead = missing_child, indent = true },
+      { bead = fetched, indent = 0, prefix = "" },
+      { bead = child, indent = 1, prefix = "└── " },
+      { bead = missing_child, indent = 1, prefix = "└── " },
     }, list.group_by_epic({ child, missing_child }, fetch_epic))
     assert.same({ "epic-fetch", "epic-missing" }, calls)
   end)
@@ -162,7 +162,7 @@ describe("chaplet.list grouping", function()
     list.group_by_epic(beads)
 
     assert.equals(1, calls)
-    assert.same({ { bead = beads[1], indent = true } }, list.group_by_epic(beads))
+    assert.same({ { bead = beads[1], indent = 1, prefix = "└── " } }, list.group_by_epic(beads))
 
     list.clear_epic_cache()
     list.group_by_epic(beads)
@@ -183,8 +183,8 @@ describe("chaplet.list grouping", function()
     assert.same(snapshot, beads)
     assert.equals(0, calls)
     assert.same({
-      { bead = epic, indent = false },
-      { bead = child, indent = true },
+      { bead = epic, indent = 0, prefix = "" },
+      { bead = child, indent = 1, prefix = "└── " },
     }, rows)
   end)
   it("memoizes fetched parents", function()
@@ -203,6 +203,120 @@ describe("chaplet.list grouping", function()
     assert.equals(fetched, first)
     assert.equals(fetched, second)
     assert.equals(1, calls)
+  end)
+
+  it("nests dependent beads beneath every epic they depend on", function()
+    local a = { id = "aa", issue_type = "epic", title = "A" }
+    local b = { id = "bb", issue_type = "epic", title = "B", dependencies = { "aa", "zz" } }
+    local c = { id = "cc", issue_type = "task", title = "C", dependencies = { "aa", "bb" } }
+    local external = { id = "dd", title = "D", dependencies = { "not-in-view" } }
+
+    assert.same({
+      { bead = a, indent = 0, prefix = "" },
+      { bead = b, indent = 1, prefix = "├── " },
+      { bead = c, indent = 2, prefix = "│   └── " },
+      { bead = c, indent = 1, prefix = "└── " },
+      { bead = external, indent = 0, prefix = "" },
+    }, list.group_by_epic({ c, b, external, a }))
+  end)
+
+  it("nests an epic with children beneath its own dependency", function()
+    local parent_epic = { id = "epic-d", issue_type = "epic", title = "D" }
+    local child_epic = { id = "epic-e", issue_type = "epic", title = "E", dependencies = { "epic-d" } }
+    local grandchild = { id = "task-g", parent = "epic-e", title = "G" }
+
+    assert.same({
+      { bead = parent_epic, indent = 0, prefix = "" },
+      { bead = child_epic, indent = 1, prefix = "└── " },
+      { bead = grandchild, indent = 2, prefix = "    └── " },
+    }, list.group_by_epic({ grandchild, child_epic, parent_epic }))
+  end)
+
+  it("sorts children by priority then natural id", function()
+    local epic = { id = "epic", issue_type = "epic", title = "Epic" }
+    local low = { id = "t-2", priority = 2, title = "low" }
+    local high = { id = "t-10", priority = 0, title = "high" }
+    local mid = { id = "t-1", priority = 1, title = "mid" }
+    for _, bead in ipairs({ low, high, mid }) do
+      bead.parent = "epic"
+    end
+
+    local rows = list.group_by_epic({ low, mid, high, epic })
+    local ids = {}
+    for index, row in ipairs(rows) do
+      if index > 1 then
+        ids[#ids + 1] = row.bead.id
+      end
+    end
+    assert.same({ "t-10", "t-1", "t-2" }, ids)
+  end)
+
+  it("renders dependency cycles flat and exactly once", function()
+    local x = { id = "x", title = "X", dependencies = { "y" } }
+    local y = { id = "y", title = "Y", dependencies = { "x" } }
+    local z = { id = "z", title = "Z" }
+
+    local rows = list.group_by_epic({ x, y, z })
+    local ids = {}
+    for _, row in ipairs(rows) do
+      ids[#ids + 1] = row.bead.id
+      assert.equals("", row.prefix)
+    end
+
+    -- Non-epic targets are not hierarchical edges (bd parity), so all three
+    -- stay roots in natural id order.
+    assert.same({ "x", "y", "z" }, ids)
+  end)
+
+  it("reproduces the bd list tree for an epic dependency graph", function()
+    local dta = { id = "trawler-incremental-dta", issue_type = "epic", title = "dta" }
+    local v95 = { id = "trawler-incremental-95v", issue_type = "epic", title = "95v", dependencies = { "trawler-incremental-dta", "trawler-incremental-gme" } }
+    local gme = { id = "trawler-incremental-gme", issue_type = "epic", title = "gme", dependencies = { "trawler-incremental-dta" } }
+    local zdd = { id = "trawler-incremental-zdd", issue_type = "epic", title = "zdd", dependencies = { "trawler-incremental-dta", "trawler-incremental-95v" } }
+    local og6 = { id = "trawler-incremental-0g6", issue_type = "epic", title = "0g6", dependencies = { "trawler-incremental-zdd", "trawler-incremental-95v", "trawler-incremental-gme" } }
+    local dte = { id = "trawler-incremental-dte", issue_type = "epic", title = "dte", dependencies = { "trawler-incremental-to4", "trawler-incremental-v30", "trawler-incremental-zdd" } }
+    local to4 = { id = "trawler-incremental-to4", issue_type = "epic", title = "to4", dependencies = { "trawler-incremental-zdd" } }
+    local v30 = { id = "trawler-incremental-v30", issue_type = "epic", title = "v30", dependencies = { "trawler-incremental-zdd" } }
+
+    local rows = list.group_by_epic({ dta, v95, gme, zdd, og6, dte, to4, v30 })
+
+    local P = "trawler-incremental-"
+    local expected = {
+      { "dta", "" },
+      { "95v", "├── " },
+      { "0g6", "│   ├── " },
+      { "zdd", "│   └── " },
+      { "0g6", "│       ├── " },
+      { "dte", "│       ├── " },
+      { "to4", "│       ├── " },
+      { "dte", "│       │   └── " },
+      { "v30", "│       └── " },
+      { "dte", "│           └── " },
+      { "gme", "├── " },
+      { "0g6", "│   ├── " },
+      { "95v", "│   └── " },
+      { "0g6", "│       ├── " },
+      { "zdd", "│       └── " },
+      { "0g6", "│           ├── " },
+      { "dte", "│           ├── " },
+      { "to4", "│           ├── " },
+      { "dte", "│           │   └── " },
+      { "v30", "│           └── " },
+      { "dte", "│               └── " },
+      { "zdd", "└── " },
+      { "0g6", "    ├── " },
+      { "dte", "    ├── " },
+      { "to4", "    ├── " },
+      { "dte", "    │   └── " },
+      { "v30", "    └── " },
+      { "dte", "        └── " },
+    }
+
+    assert.equals(#expected, #rows)
+    for index, item in ipairs(expected) do
+      assert.equals(P .. item[1], rows[index].bead.id, "row " .. index)
+      assert.equals(item[2], rows[index].prefix, "row " .. index)
+    end
   end)
 end)
 
@@ -295,6 +409,7 @@ describe("chaplet.list render", function()
     assert.same({
       ["<CR>"] = true,
       ["<LeftMouse>"] = true,
+      ["|"] = true,
       q = true,
       v = true,
       ["?"] = true,
@@ -404,27 +519,23 @@ end)
 
 describe("chaplet.list views", function()
   local saved_list
-  local saved_query
   local saved_view_filters
   local saved_view_names
   local saved_mark_fetch
   local saved_notify
   local saved_select
   local list_calls
-  local query_calls
   local marks
   local notifications
 
   before_each(function()
     saved_list = bd.list
-    saved_query = bd.query
     saved_view_filters = bd.view_filters
     saved_view_names = bd.view_names
     saved_mark_fetch = require("chaplet.refresh").mark_fetch
     saved_notify = vim.notify
     saved_select = vim.ui.select
     list_calls = {}
-    query_calls = {}
     marks = {}
     notifications = {}
     config.setup({ auto_refresh = false })
@@ -443,10 +554,6 @@ describe("chaplet.list views", function()
       list_calls[#list_calls + 1] = filters and vim.deepcopy(filters) or nil
       return {}
     end
-    bd.query = function(expr)
-      query_calls[#query_calls + 1] = expr
-      return {}
-    end
     require("chaplet.refresh").mark_fetch = function(bufnr)
       marks[#marks + 1] = bufnr
     end
@@ -461,7 +568,6 @@ describe("chaplet.list views", function()
       vim.api.nvim_buf_delete(bufnr, { force = true })
     end
     bd.list = saved_list
-    bd.query = saved_query
     bd.view_filters = saved_view_filters
     bd.view_names = saved_view_names
     require("chaplet.refresh").mark_fetch = saved_mark_fetch
@@ -475,17 +581,19 @@ describe("chaplet.list views", function()
     local bufnr = list.open()
 
     assert.equals("inbox", list.current_view(bufnr))
-    assert.equals(1, #query_calls)
-    assert.same({ "status=deferred" }, query_calls)
+    assert.equals(1, #list_calls)
+    assert.same({ { status = "deferred" } }, list_calls)
     assert.equals(bufnr, vim.api.nvim_get_current_buf())
   end)
 
-  it("fetches all views with list and filtered views with query", function()
+  it("fetches every view with list filter args", function()
     assert.same({}, list.fetch("all", {}))
     assert.same({}, list.fetch("open", { type = "task", label = "human" }))
 
-    assert.same({ { all = true } }, list_calls)
-    assert.same({ "status=open AND type=task AND label=human" }, query_calls)
+    assert.same({
+      { all = true },
+      { status = "open", type = "task", label = "human" },
+    }, list_calls)
   end)
 
   it("sets and clears buffer filters server-side", function()
@@ -494,7 +602,6 @@ describe("chaplet.list views", function()
 
     assert.same({ type = "task" }, list.filters(bufnr))
     assert.same({ { all = true }, { all = true, type = "task" } }, list_calls)
-    assert.same({}, query_calls)
 
     list.set_filters(bufnr, { type = "", label = "" })
     assert.same({}, list.filters(bufnr))

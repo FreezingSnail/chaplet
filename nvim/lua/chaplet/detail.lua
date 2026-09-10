@@ -85,7 +85,15 @@ function M.render(bead, comments)
 end
 
 local function close_window()
-  util.restore_previous_buffer_or_close(vim.api.nvim_get_current_buf())
+  local bufnr = vim.api.nvim_get_current_buf()
+  if vim.b[bufnr].chaplet_detail_vertical then
+    local ok = pcall(vim.api.nvim_win_close, 0, false)
+    if ok then
+      return
+    end
+    -- Only window on screen: fall back to restoring the hidden buffer.
+  end
+  util.restore_previous_buffer_or_close(bufnr)
 end
 
 function M.keys(bead)
@@ -172,13 +180,14 @@ function M.populate(bufnr, id)
     return
   end
 
-  local bead = bd.show(id)
+  local fetched = bd.detail(id)
+  local bead = fetched and fetched.bead
   if not bead then
     vim.notify(string.format("chaplet: no bead %s", id), vim.log.levels.ERROR)
     return
   end
 
-  local rendered = M.render(bead, bd.comments(id))
+  local rendered = M.render(bead, fetched.comments)
   local previous = vim.b[bufnr].chaplet_detail_rendered
   if previous ~= rendered then
     vim.bo[bufnr].modifiable = true
@@ -197,7 +206,10 @@ function M.populate(bufnr, id)
   refresh.mark_fetch(bufnr)
 end
 
-function M.open(id)
+--- Open the detail view.  With opts.vertical, open it in a new vertical
+--- split instead of replacing the current buffer; q then kills the split.
+function M.open(id, opts)
+  local vertical = opts ~= nil and opts.vertical == true
   local previous = vim.api.nvim_get_current_buf()
   local bufnr = util.scratch_buffer(M.BUFFER_NAME, BUFFER_MARKER)
 
@@ -206,11 +218,19 @@ function M.open(id)
   end
   set_options(bufnr)
   vim.b[bufnr].chaplet_detail_id = id
+  vim.b[bufnr].chaplet_detail_vertical = vertical
   M.populate(bufnr, id)
   refresh.attach(bufnr, function()
     M.populate(bufnr, id)
   end)
-  vim.api.nvim_win_set_buf(0, bufnr)
+
+  if vertical then
+    vim.cmd("vsplit")
+    local winid = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(winid, bufnr)
+  else
+    vim.api.nvim_win_set_buf(0, bufnr)
+  end
   return bufnr
 end
 

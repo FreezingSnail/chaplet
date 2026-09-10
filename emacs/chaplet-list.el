@@ -1,8 +1,8 @@
 ;;; chaplet-list.el --- tabulated-list bead browser: views + filters -*- lexical-binding: t; -*-
 
 ;; The bead table.  Derived from `tabulated-list-mode'.  Renders bead alists
-;; from `chaplet-bd-list' / `chaplet-bd-query' into a sortable table with
-;; switchable views and type/label filters.
+;; from `chaplet-bd-list' into a sortable table with switchable views and
+;; type/label filters.
 
 (require 'chaplet-bd)
 (require 'chaplet-graph)
@@ -24,30 +24,15 @@
   [("ID" 12) ("Type" 10) ("State" 12) ("P" 3) ("Staged" 7) ("Title" 60)]
   "Column format for `chaplet-list-mode'.")
 
-(defun chaplet-list--view-query (view)
-  "Return the bd query expression for VIEW, or nil for the all view."
-  (if (eq view 'all)
-      nil
-    (chaplet-bd--filters->expr (chaplet-bd--view-filters view))))
-
 (defun chaplet-list--staged-p (bead)
   "Return non-nil if BEAD is deferred and has the staged label."
   (and (string= (alist-get 'status bead) "deferred")
        (member chaplet-staged-label (alist-get 'labels bead))))
 
-(defun chaplet-list--filters->query (base filters)
-  "Append FILTERS alist clauses to BASE query expr, joined by \" AND \"."
-  (mapconcat #'identity
-             (delete "" (delq nil (list base (chaplet-bd--filters->expr filters))))
-             " AND "))
-
 (defun chaplet-list--fetch (view)
   "Return the list of bead alists for VIEW, honoring active filters."
-  (let ((filters (append (chaplet-bd--view-filters view)
-                         chaplet-list--filters)))
-    (if (assq :all filters)
-        (chaplet-bd-list filters)
-      (chaplet-bd-query (chaplet-bd--filters->expr filters)))))
+  (chaplet-bd-list (append (chaplet-bd--view-filters view)
+                           chaplet-list--filters)))
 
 (defun chaplet-list--priority-dot (priority)
   "Return the priority display cell for PRIORITY (number or nil).

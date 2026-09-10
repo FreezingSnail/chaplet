@@ -96,7 +96,7 @@ describe("chaplet.graph buffer", function()
 
     local marks = vim.api.nvim_buf_get_extmarks(bufnr, graph.namespace, 0, -1, {})
     assert.equals(3, #marks)
-    assert.equals(" [n] next [p] prev [<CR>] open focused [d] dependents [f] deps [g] refresh [v] view switch [c] closed [q] quit [mouse-1] open node [mouse-2] dependents",
+    assert.equals(" [n] next [p] prev [<CR>] open focused [|] open split [d] dependents [f] deps [g] refresh [v] view switch [c] closed [q] quit [mouse-1] open node [mouse-2] dependents",
       bar.rendered(bufnr).winbar)
     assert.matches("chaplet all · 0 beads", bar.rendered(bufnr).statusline)
   end)
@@ -308,8 +308,8 @@ describe("chaplet.graph navigation", function()
 
   it("opens focused nodes and reports missing focus", function()
     local opened
-    detail.open = function(id)
-      opened = id
+    detail.open = function(id, opts)
+      opened = { id = id, opts = opts }
     end
     local bufnr = rendered_graph({ { id = "a", title = "A", deps = {} } })
 
@@ -317,7 +317,12 @@ describe("chaplet.graph navigation", function()
     assert.same({ { "chaplet: no focused node", vim.log.levels.WARN } }, notifications)
     graph.focus_next(bufnr)
     graph.open_focused(bufnr)
-    assert.equals("a", opened)
+    assert.equals("a", opened.id)
+    assert.is_nil(opened.opts)
+
+    graph.open_focused(bufnr, { vertical = true })
+    assert.equals("a", opened.id)
+    assert.same({ vertical = true }, opened.opts)
   end)
 
   it("takes first matching edge for deterministic dependency jumps", function()

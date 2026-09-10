@@ -9,8 +9,8 @@
 #
 # Stateful mode (full-loop tests): when CHAPLET_FAKE_BD_STATE is set, it is
 # a state file where undefer records `APPROVED <id>` and comment records
-# `COMMENT <id> <text>`.  `query` then filters approved ids out of the
-# inbox, so approval is observable as removal from the staged inbox.
+# `COMMENT <id> <text>`.  `list --status=deferred` then filters approved ids
+# out of the inbox, so approval is observable as removal from the inbox.
 
 state="${CHAPLET_FAKE_BD_STATE:-}"
 
@@ -19,6 +19,23 @@ cmd="$1"; shift
 
 approved() {
   [ -n "$state" ] && [ -f "$state" ] && grep -q "^APPROVED $1$" "$state"
+}
+
+# Read --status=VALUE and --label=VALUE (last wins) from the remaining args.
+status=""; label=""
+for arg in "$@"; do
+  case "$arg" in
+    --status=*) status="${arg#--status=}" ;;
+    --label=*) label="${arg#--label=}" ;;
+  esac
+done
+
+entry_one='{"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"dependencies":[],"defer_until":null,"design":"","acceptance":"","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}'
+entry_two='{"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"dependencies":[{"issue_id":"bd-2","depends_on_id":"bd-1","type":"blocks","metadata":"{}"}],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}'
+
+# Label filter: no canned bead carries a label other than x/staged.
+label_blocked() {
+  [ -n "$label" ] && [ "$label" != "x" ] && [ "$label" != "staged" ]
 }
 
 case "$cmd" in
@@ -33,12 +50,24 @@ EOF
       fi
       previous="$arg"
     done
-    cat <<'EOF'
-[
-  {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"dependencies":[],"defer_until":null,"design":"","acceptance":"","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"},
-  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"dependencies":[{"issue_id":"bd-2","depends_on_id":"bd-1","type":"blocks","metadata":"{}"}],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}
-]
-EOF
+    if label_blocked; then
+      echo '[]'
+      exit 0
+    fi
+    case "$status" in
+      deferred)
+        if approved bd-2; then
+          echo '[]'
+        else
+          printf '[%s]\n' "$entry_two"
+        fi ;;
+      open)
+        printf '[%s]\n' "$entry_one" ;;
+      closed)
+        echo '[]' ;;
+      *)
+        printf '[%s, %s]\n' "$entry_one" "$entry_two" ;;
+    esac
     exit 0 ;;
   query)
     if approved bd-2; then
@@ -57,14 +86,14 @@ EOF
       bd-2)
         cat <<'EOF'
 [
-  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z"}
+  {"id":"bd-2","title":"two","description":"d2","status":"deferred","priority":1,"issue_type":"bug","owner":"bob","labels":["staged"],"defer_until":"2026-02-01","design":"design2","acceptance":"acc2","created_at":"2026-01-03T00:00:00Z","updated_at":"2026-01-04T00:00:00Z","comment_count":0}
 ]
 EOF
         ;;
       *)
         cat <<'EOF'
 [
-  {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"defer_until":null,"design":"design1","acceptance_criteria":"acc1","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z"}
+  {"id":"bd-1","title":"one","description":"d1","status":"open","priority":2,"issue_type":"task","owner":"alice","labels":["x"],"defer_until":null,"design":"design1","acceptance_criteria":"acc1","created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-02T00:00:00Z","comment_count":1}
 ]
 EOF
         ;;

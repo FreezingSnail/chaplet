@@ -48,7 +48,7 @@ describe("chaplet.bd graph reads", function()
     local beads = bd.graph_data({ status = "open" })
 
     assert.same(expected_argv({ "list", "--json", "--status=open" }), bd._last_argv)
-    assert.same({ "bd-1" }, beads[2].dependencies)
+    assert.equals(1, #beads)
     assert.equals("bd-1", beads[1].id)
   end)
 end)

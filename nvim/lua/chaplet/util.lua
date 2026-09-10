@@ -71,6 +71,56 @@ function M.deep_equal(left, right)
   return true
 end
 
+--- Split a string into alternating non-digit and digit runs.
+local function natural_runs(value)
+  local runs = {}
+  local index = 1
+  while index <= #value do
+    local kind = value:sub(index, index):match("%d") and "digit" or "other"
+    local start_index = index
+    while index <= #value do
+      local character = value:sub(index, index)
+      local run_kind = character:match("%d") and "digit" or "other"
+      if run_kind ~= kind then
+        break
+      end
+      index = index + 1
+    end
+    runs[#runs + 1] = { kind = kind, text = value:sub(start_index, index - 1) }
+  end
+  return runs
+end
+
+--- Compare two ids naturally: digit runs compare numerically, other runs
+--- byte-wise.  Mirrors bd's NaturalCompareIDs tree ordering.
+function M.natural_compare(left, right)
+  local left_runs = natural_runs(left)
+  local right_runs = natural_runs(right)
+  for index = 1, math.max(#left_runs, #right_runs) do
+    local left_run = left_runs[index]
+    local right_run = right_runs[index]
+    if left_run == nil then
+      return -1
+    end
+    if right_run == nil then
+      return 1
+    end
+    if left_run.kind ~= right_run.kind then
+      return left_run.kind == "digit" and -1 or 1
+    end
+    if left_run.kind == "digit" then
+      local left_number = tonumber(left_run.text)
+      local right_number = tonumber(right_run.text)
+      if left_number ~= right_number then
+        return left_number < right_number and -1 or 1
+      end
+    elseif left_run.text ~= right_run.text then
+      return left_run.text < right_run.text and -1 or 1
+    end
+  end
+  return 0
+end
+
 --- Restore the buffer hidden by a scratch view, or close only if safe.
 function M.restore_previous_buffer_or_close(bufnr)
   if not bufnr or not vim.api.nvim_buf_is_valid(bufnr) then
